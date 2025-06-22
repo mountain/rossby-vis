@@ -1,103 +1,98 @@
 # rossby-vis
 
-**The stunning, interactive frontend of [`earth`](https://github.com/cambecc/earth), re-engineered into a standalone Rust application that connects to the [`rossby`](https://github.com/mountain/rossby) data server.**
-
-[![Build Status](https://github.com/your-username/rossby-vis/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/rossby-vis/actions)
+[![Build Status](https://github.com/mountain/rossby-vis/actions/workflows/ci.yml/badge.svg)](https://github.com/mountain/rossby-vis/actions)
 [![Crates.io](https://img.shields.io/crates/v/rossby-vis.svg)](https://crates.io/crates/rossby-vis)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
----
+A visualization frontend for the Rossby data server, providing an interactive interface for visualizing global wind and weather patterns.
 
-![rossby-vis screenshot](https://path-to-your/screenshot.png)
+## Project Overview
 
-*A sample visualization of a NetCDF file, served by `rossby` and rendered by the `rossby-vis` application.*
+This project serves as a standalone server for the Earth visualization interface, embedding all static assets in a single binary.
 
-## Vision
+### Features
 
-The `rossby` project liberates scientific data from static NetCDF files. `rossby-vis` gives that data a face.
+- Embeds all frontend assets in a single executable
+- Serves HTML, CSS, JavaScript, and other assets from memory
+- Provides a lightweight web server with configurable port
+- Comprehensive test suite with unit and integration tests
+- CI/CD integration with GitHub Actions
 
-This project packages the world-class, GPU-powered frontend of Cameron Beccario's `earth` project into a simple, self-contained Rust application. It's designed to be the perfect visual companion to the `rossby` data server.
+## Development
 
-The goal is to provide a single, installable command-line tool that instantly serves a beautiful, interactive interface for your `rossby` instance. No web servers to configure, no dependencies to manage. Just pure, elegant visualization.
+### Prerequisites
 
-## Features
+- Rust (stable channel, 2021 edition or later)
+- Cargo package manager
 
-- **Single Executable:** `rossby-vis` is a command-line application. Run it, and it handles everything.
-- **No Web Dependencies:** End-users do not need `Node.js`, `npm`, or any other web tooling. Just the `rossby-vis` binary.
-- **Stunning Visuals:** Fully leverages the proven rendering engine of the original `earth` project.
-- **Decoupled Architecture:** Clearly separates the `rossby-vis` client from the `rossby` data server, allowing them to run independently.
-- **Simple & Fast:** Installation via `cargo`. Launches in seconds.
+### Building
 
-## How It Works
+```bash
+# Build the project
+cargo build
 
-`rossby-vis` is a Rust application that embeds a pre-built, modified version of the `earth` web client. When you run `rossby-vis`, it starts a lightweight, local web server that serves these embedded assets and automatically opens your browser.
-
-1.  **The Data Engine (`rossby` server)**: A running instance of the `rossby` project. It loads a NetCDF file and serves its data via a high-performance API.
-2.  **The Visualization App (`rossby-vis`)**: This project. A Rust executable that serves the pre-packaged web interface (HTML/CSS/JS) and tells it where to find the `rossby` server.
-
+# Build for production
+cargo build --release
 ```
 
-\+--------------------------------+
-|         Your Browser           |
-|  (Opened by `rossby-vis`)      |
-\+--------------------------------+
-^
-| 2. JS fetches data from rossby server
-|    (e.g., http://localhost:8000/v1/data)
-|
-\+--------------------------------+   +--------------------------------+
-|  The rossby-vis App (Client)   |   |  The rossby Server (Backend)   |
-|--------------------------------|   |--------------------------------|
-| 1a. Serves embedded web assets.|   | 1b. Loads your NetCDF file.    |
-| 1b. Tells browser the API URL. |   |     Serves data on port 8000.  |
-\+--------------------------------+   +--------------------------------+
+### Running
 
-````
+```bash
+# Run the server on the default port (8080)
+cargo run
 
-## Quick Start
-
-This guide assumes you have a `rossby` server instance up and running.
-
-### Prerequisite: Run the `rossby` Server
-
-In a separate terminal, start the `rossby` server with your data file.
-```sh
-# Download and install rossby from its repository if you haven't already
-# cargo install rossby
-
-# Start the server
-rossby your_data_file.nc --port 8000
-````
-
-Your data is now being served at `http://localhost:8000`.
-
-### Running `rossby-vis`
-
-In a new terminal, install and run the `rossby-vis` application.
-
-```sh
-# 1. Install rossby-vis from Crates.io
-cargo install rossby-vis
-
-# 2. Run it, pointing it to your rossby server's API
-rossby-vis --api-url http://localhost:8000
+# Run with a custom port
+cargo run -- --port 9000
 ```
 
-This single command will start the local visualization server and open a new tab in your default browser. You will immediately see your NetCDF data rendered on the interactive globe.
+### Testing
 
-## Contributing
+```bash
+# Run all tests
+cargo test
 
-Contributions are highly welcome\! While the end-user application is a Rust binary, development involves both Rust and web technologies (JavaScript, HTML, CSS).
+# Run specific test suites
+cargo test --test integration_tests
+```
 
-Please feel free to open an issue or submit a pull request.
+### CI Checks
 
-## Acknowledgements
+The project uses GitHub Actions for CI/CD with the following checks:
 
-`rossby-vis` would be impossible without two foundational open-source projects:
+- `cargo check`: Verifies the code compiles without errors
+- `cargo test`: Runs all unit and integration tests
+- `cargo fmt --check`: Ensures code formatting matches the Rust style guide
+- `cargo clippy`: Runs the Rust linter to catch common issues
 
-  - **[`earth`](https://github.com/cambecc/earth)** by **Cameron Beccario**, whose frontend source code is the basis for this entire visualization.
-  - **[`rossby`](https://www.google.com/url?sa=E&source=gmail&q=https://github.com/mountain/rossby)** which provides the essential high-performance backend.
+You can run these checks locally before committing:
+
+```bash
+cargo check
+cargo test
+cargo fmt --check
+cargo clippy -- -D warnings
+```
+
+## Project Structure
+
+- `src/`: Application source code
+  - `main.rs`: Entry point with command line parsing
+  - `server.rs`: Web server implementation using Axum
+  - `handlers.rs`: Request handlers for serving static assets
+  - `embed.rs`: Configuration for embedding static assets
+  - `error.rs`: Custom error types
+- `tests/`: Integration tests
+- `.github/workflows/`: CI/CD configuration
+
+## Phase 1 Implementation
+
+The first phase implements a web server that:
+
+1. Embeds all static assets from the `public/` directory into the binary
+2. Serves these assets over HTTP at `http://localhost:<port>`
+3. Delivers appropriate MIME types for each file
+4. Provides proper error handling for missing assets
 
 ## License
 
-This project is licensed under the MIT License.
+See the [LICENSE](LICENSE) file for details.

@@ -1,0 +1,34 @@
+[package]
+name = "rossby-vis"
+version = "0.1.0"
+edition = "2021"
+description = "Interactive visualization frontend for the rossby data server"
+authors = ["Rossby Vis Team"]
+license = "MIT"
+
+[dependencies]
+# Web framework
+axum = "0.6.18"
+tower-http = { version = "0.4.0", features = ["fs", "trace"] }
+tower = "0.4.13"
+
+# Async runtime
+tokio = { version = "1.28.1", features = ["full"] }
+
+# Asset embedding
+rust-embed = "6.6.1"
+mime_guess = "2.0.4"
+
+# CLI argument parsing
+clap = { version = "4.3.0", features = ["derive"] }
+
+# Logging
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+
+# Error handling
+thiserror = "1.0.40"
+anyhow = "1.0.71"
+
+[dev-dependencies]
+reqwest = { version = "0.11.18", features = ["blocking"] }
