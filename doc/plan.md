@@ -95,7 +95,10 @@ cargo doc --no-deps
 #### 2. Data Proxy Layer
 - **Technology**: `reqwest` streams with `axum` response streaming
 - **Purpose**: Transform and forward requests between Earth and Rossby
-- **Routes**: `/proxy/metadata`, `/proxy/data/*`
+- **Routes**: 
+  - `/proxy/metadata` → Transform Rossby metadata to Earth format
+  - `/proxy/data?vars={variables}&time={timestamp}&format=json` → Stream data with format conversion
+- **Conversion**: Transforms Rossby's unified JSON response into Earth's expected format
 
 #### 3. Format Conversion Engine
 - **Metadata Converter**: Rossby NetCDF → Earth JSON headers
@@ -133,18 +136,54 @@ cargo doc --no-deps
 
 #### Requirements for Rossby Server
 
-The rossby-vis project expects the Rossby server to handle all NetCDF-specific processing including CF convention compliance (scale_factor, add_offset, _FillValue handling) and provide clean JSON APIs.
+The rossby-vis project expects the Rossby server to handle all NetCDF-specific processing including CF convention compliance (scale_factor, add_offset, _FillValue handling) and provide clean JSON APIs through a unified data endpoint.
 
-**Expected Rossby Data Endpoint Response:**
+**Unified Data Endpoint**: `GET /data?vars={variables}&format=json&{dimension_selectors}`
+
+For web frontends like rossby-vis, the Rossby server provides a unified data endpoint that supports multiple variables and flexible dimension selection:
+
+```bash
+# Example request for wind components at specific time
+GET /data?vars=u10,v10&time=1672531200&format=json
+
+# Example request for temperature data over a time range
+GET /data?vars=t2m&time_range=1672531200,1675209600&format=json
+```
+
+**Expected Response Format** (`format=json`):
 ```json
 {
-  "variable": "u10",
-  "time": "2014-01-31T03:00:00.000Z",
-  "data": [-4.76, -4.75, -4.73, ...],  // Already unpacked floating-point values
-  "missing_value": null,               // How missing data is represented
-  "units": "m s**-1"
+  "metadata": {
+    "query": {
+      "vars": "u10,v10",
+      "time": "1672531200",
+      "format": "json"
+    },
+    "shape": [1, 721, 1440],
+    "dimensions": ["time", "latitude", "longitude"],
+    "variables": {
+      "u10": {
+        "units": "m s**-1",
+        "long_name": "10 metre U wind component"
+      },
+      "v10": {
+        "units": "m s**-1", 
+        "long_name": "10 metre V wind component"
+      }
+    }
+  },
+  "data": {
+    "u10": [-4.76, -4.75, -4.73, ...],  // Flattened 1D array, unpacked values
+    "v10": [-2.34, -2.33, -2.31, ...],  // Missing values as null
+  }
 }
 ```
+
+**Key Features of the Unified Endpoint**:
+- **Multiple Variables**: Request multiple variables in a single call (e.g., `vars=u10,v10` for wind)
+- **Flexible Dimension Selection**: Support time slices, ranges, and spatial subsets
+- **Streaming Architecture**: Uses chunked transfer encoding for large datasets
+- **Web-Optimized**: `format=json` handles all CF convention unpacking server-side
 
 This division ensures:
 - **Rossby server**: Handles domain-specific meteorological data processing
@@ -223,8 +262,9 @@ fn map_variable_category(variable: &str) -> &str {
 #### Frontend Integration
 - **Minimal Changes**: Update base URLs to proxy endpoints
 - **Catalog Loading**: `/proxy/catalog` instead of static files
-- **Data Requests**: `/proxy/data/{variable}/{time}` routing
-- **Transparent Operation**: Existing Earth code remains functional
+- **Data Requests**: `/proxy/data?vars={variables}&time={timestamp}&format=json` routing
+- **Multi-Variable Support**: Single requests can fetch multiple variables (e.g., u10,v10 for wind)
+- **Transparent Operation**: Existing Earth code remains functional with format conversion
 
 ---
 

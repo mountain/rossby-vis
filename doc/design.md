@@ -72,8 +72,9 @@ The `rossby-vis` project serves as a visualization frontend bridge between the R
 - **Purpose**: Forward and transform requests between Earth frontend and Rossby server
 - **Routes**:
   - `GET /proxy/metadata` → Transform Rossby metadata to Earth format
-  - `GET /proxy/data/*` → Stream data with format conversion
+  - `GET /proxy/data?vars={variables}&time={timestamp}&format=json` → Stream data with format conversion
 - **Streaming**: Uses `reqwest` streams with `axum` response streaming
+- **Conversion**: Transforms Rossby's unified JSON response into Earth's expected format
 
 #### 3. Format Conversion Engine
 - **Metadata Converter**: Transform Rossby NetCDF metadata to Earth header format
@@ -127,16 +128,52 @@ The `rossby-vis` project expects the Rossby server to handle all NetCDF-specific
 }
 ```
 
-**Data Endpoint**: `GET /data/{variable}?time={timestamp}`
+**Unified Data Endpoint**: `GET /data?vars={variables}&format=json&{dimension_selectors}`
+
+For web frontends like rossby-vis, the Rossby server provides a unified data endpoint that supports multiple variables and flexible dimension selection:
+
+```bash
+# Example request for wind components at specific time
+GET /data?vars=u10,v10&time=1672531200&format=json
+
+# Example request for temperature data over a time range
+GET /data?vars=t2m&time_range=1672531200,1675209600&format=json
+```
+
+**Response Format** (`format=json`):
 ```json
 {
-  "variable": "u10",
-  "time": "2014-01-31T03:00:00.000Z",
-  "data": [-4.76, -4.75, -4.73, ...],  // Already unpacked floating-point values
-  "missing_value": null,               // How missing data is represented
-  "units": "m s**-1"
+  "metadata": {
+    "query": {
+      "vars": "u10,v10",
+      "time": "1672531200",
+      "format": "json"
+    },
+    "shape": [1, 721, 1440],
+    "dimensions": ["time", "latitude", "longitude"],
+    "variables": {
+      "u10": {
+        "units": "m s**-1",
+        "long_name": "10 metre U wind component"
+      },
+      "v10": {
+        "units": "m s**-1", 
+        "long_name": "10 metre V wind component"
+      }
+    }
+  },
+  "data": {
+    "u10": [-4.76, -4.75, -4.73, ...],  // Flattened 1D array, unpacked values
+    "v10": [-2.34, -2.33, -2.31, ...],  // Missing values as null
+  }
 }
 ```
+
+**Key Features of the Unified Endpoint**:
+- **Multiple Variables**: Request multiple variables in a single call (e.g., `vars=u10,v10` for wind)
+- **Flexible Dimension Selection**: Support time slices, ranges, and spatial subsets
+- **Streaming Architecture**: Uses chunked transfer encoding for large datasets
+- **Web-Optimized**: `format=json` handles all CF convention unpacking server-side
 
 #### Performance Requirements
 1. **Streaming Support**: Large data arrays should support chunked transfer encoding
