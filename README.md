@@ -43,8 +43,14 @@ cargo build --release
 # Run the server on the default port (8080)
 cargo run
 
-# Run with a custom port
-cargo run -- --port 9000
+# Run with a custom port and backend URL
+cargo run -- --port 9000 --api-url http://localhost:8000
+
+# Run with production logging
+cargo run -- --api-url http://localhost:8000 --log-format json --environment production
+
+# Run with debug logging and metrics
+cargo run -- --api-url http://localhost:8000 --log-level debug --enable-metrics
 ```
 
 ### Testing

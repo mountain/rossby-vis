@@ -7,10 +7,10 @@ use axum::{
 use futures::StreamExt;
 use mime_guess::from_path;
 use serde::Deserialize;
-use std::{collections::HashMap, sync::Arc};
-use tracing::{error, info, warn};
+use std::{collections::HashMap, sync::Arc, time::Instant};
+use tracing::{error, info, instrument, warn};
 
-use crate::{embed::StaticAssets, error::AppError, server::AppState};
+use crate::{embed::StaticAssets, error::AppError, log_error, log_proxy_request, server::AppState};
 
 /// Query parameters for the data proxy endpoint
 #[derive(Debug, Deserialize)]
@@ -67,30 +67,58 @@ pub async fn static_asset(Path(path): Path<String>) -> Response {
 }
 
 /// Handler for the metadata proxy endpoint
+#[instrument(skip(state), fields(backend_url))]
 pub async fn proxy_metadata(State(state): State<Arc<AppState>>) -> Result<Response, AppError> {
-    info!("Proxying metadata request to Rossby server");
-
+    let start_time = Instant::now();
     let metadata_url = format!("{}/metadata", state.api_url);
+
+    tracing::Span::current().record("backend_url", &metadata_url);
+    info!("Proxying metadata request to Rossby server");
 
     match state.http_client.get(&metadata_url).send().await {
         Ok(response) => {
+            let status_code = response.status().as_u16();
+
             if response.status().is_success() {
                 // Get the response body as bytes and stream it
                 match response.bytes().await {
-                    Ok(body) => Ok(HttpResponse::builder()
-                        .status(StatusCode::OK)
-                        .header(header::CONTENT_TYPE, "application/json")
-                        .body(Body::from(body.to_vec()))
-                        .unwrap()
-                        .into_response()),
+                    Ok(body) => {
+                        let duration = start_time.elapsed();
+                        let bytes_transferred = body.len() as u64;
+
+                        log_proxy_request!(
+                            &metadata_url,
+                            status_code,
+                            duration.as_millis() as u64,
+                            bytes_transferred
+                        );
+
+                        Ok(HttpResponse::builder()
+                            .status(StatusCode::OK)
+                            .header(header::CONTENT_TYPE, "application/json")
+                            .body(Body::from(body.to_vec()))
+                            .unwrap()
+                            .into_response())
+                    }
                     Err(e) => {
-                        error!("Failed to read metadata response body: {}", e);
+                        let duration = start_time.elapsed();
+                        log_error!(e, "Failed to read metadata response body");
+                        log_proxy_request!(
+                            &metadata_url,
+                            status_code,
+                            duration.as_millis() as u64,
+                            0
+                        );
+
                         Err(AppError::ProxyError(
                             "Failed to read response body".to_string(),
                         ))
                     }
                 }
             } else {
+                let duration = start_time.elapsed();
+                log_proxy_request!(&metadata_url, status_code, duration.as_millis() as u64, 0);
+
                 warn!("Rossby server returned error status: {}", response.status());
                 Err(AppError::ProxyError(format!(
                     "Backend server error: {}",
@@ -99,7 +127,10 @@ pub async fn proxy_metadata(State(state): State<Arc<AppState>>) -> Result<Respon
             }
         }
         Err(e) => {
-            error!("Failed to connect to Rossby server: {}", e);
+            let duration = start_time.elapsed();
+            log_error!(e, "Failed to connect to Rossby server");
+            log_proxy_request!(&metadata_url, 0, duration.as_millis() as u64, 0);
+
             Err(AppError::ProxyError(
                 "Failed to connect to backend server".to_string(),
             ))
@@ -108,10 +139,13 @@ pub async fn proxy_metadata(State(state): State<Arc<AppState>>) -> Result<Respon
 }
 
 /// Handler for the data proxy endpoint with streaming support
+#[instrument(skip(state), fields(backend_url, vars, time))]
 pub async fn proxy_data(
     State(state): State<Arc<AppState>>,
     Query(params): Query<DataQuery>,
 ) -> Result<Response, AppError> {
+    let start_time = Instant::now();
+
     info!("Proxying data request to Rossby server: {:?}", params);
 
     // Build the query string for the Rossby server
@@ -119,10 +153,12 @@ pub async fn proxy_data(
 
     if let Some(vars) = &params.vars {
         query_params.push(format!("vars={}", vars));
+        tracing::Span::current().record("vars", vars);
     }
 
     if let Some(time) = &params.time {
         query_params.push(format!("time={}", time));
+        tracing::Span::current().record("time", time);
     }
 
     if let Some(time_range) = &params.time_range {
@@ -140,11 +176,21 @@ pub async fn proxy_data(
     let query_string = query_params.join("&");
     let data_url = format!("{}/data?{}", state.api_url, query_string);
 
+    tracing::Span::current().record("backend_url", &data_url);
     info!("Requesting data from: {}", data_url);
 
     match state.http_client.get(&data_url).send().await {
         Ok(response) => {
+            let status_code = response.status().as_u16();
+
             if response.status().is_success() {
+                info!(
+                    target: "proxy",
+                    backend_url = %data_url,
+                    backend_status_code = status_code,
+                    "Starting data stream from Rossby server"
+                );
+
                 // Stream the response using chunked transfer encoding
                 let stream = response.bytes_stream().map(|result| {
                     result.map_err(|e| {
@@ -161,6 +207,9 @@ pub async fn proxy_data(
                     .unwrap()
                     .into_response())
             } else {
+                let duration = start_time.elapsed();
+                log_proxy_request!(&data_url, status_code, duration.as_millis() as u64, 0);
+
                 warn!("Rossby server returned error status: {}", response.status());
                 Err(AppError::ProxyError(format!(
                     "Backend server error: {}",
@@ -169,7 +218,10 @@ pub async fn proxy_data(
             }
         }
         Err(e) => {
-            error!("Failed to connect to Rossby server: {}", e);
+            let duration = start_time.elapsed();
+            log_error!(e, "Failed to connect to Rossby server");
+            log_proxy_request!(&data_url, 0, duration.as_millis() as u64, 0);
+
             Err(AppError::ProxyError(
                 "Failed to connect to backend server".to_string(),
             ))
