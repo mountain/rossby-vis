@@ -1,9 +1,5 @@
-mod embed;
-mod error;
-mod handlers;
-mod server;
-
 use clap::Parser;
+use rossby_vis::run_server;
 use tracing_subscriber::{fmt, EnvFilter};
 
 #[derive(Parser, Debug)]
@@ -16,6 +12,10 @@ struct Args {
     /// Port to run the server on
     #[arg(short, long, default_value_t = 8080)]
     port: u16,
+
+    /// URL of the Rossby backend server
+    #[arg(long, required = true)]
+    api_url: String,
 }
 
 #[tokio::main]
@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Run the server
-    server::run_server(args.port).await?;
+    run_server(args.port, args.api_url).await?;
 
     Ok(())
 }
