@@ -289,25 +289,29 @@ fn map_variable_category(variable: &str) -> &str {
 ### Phase 2: Streaming Data Proxy
 **Status**: Next Phase
 
-**Objectives**: Efficient large dataset handling through streaming architecture
+**Objectives**: Efficient large dataset handling through streaming architecture with unified API support
 
 **Key Components**:
 - HTTP client with streaming support (`reqwest`)
-- Proxy routes for data forwarding
+- Unified proxy routes: `/proxy/data?vars={variables}&time={timestamp}&format=json`
 - Chunked transfer encoding implementation
-- Format conversion during streaming
+- Multi-variable format conversion during streaming
+- Real-time Rossby JSON → Earth format translation
 
 **Technical Requirements**:
 - Memory-efficient processing of multi-gigabyte responses
-- Real-time format conversion (Rossby → Earth)
+- Support for Rossby's unified `/data` endpoint with multiple variables
+- Real-time format conversion (Rossby unified JSON → Earth format)
+- Coordinated multi-variable requests (e.g., u10,v10 for wind visualization)
 - Error handling for network failures and data corruption
-- Configurable backend server URL
+- Configurable backend server URL via `--api-url` parameter
 
 **Acceptance Criteria**:
 - Low memory footprint during large dataset transfers
-- Chunked transfer encoding in browser network inspection
-- Successful data visualization from Rossby backend
-- Robust error handling and recovery
+- Chunked transfer encoding visible in browser network inspection
+- Successful multi-variable data visualization from Rossby backend
+- Single requests efficiently handle related variables (wind u/v components)
+- Robust error handling and recovery for proxy operations
 
 ### Phase 3: Advanced Features (Future)
 - Multi-variable support
