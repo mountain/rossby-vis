@@ -798,18 +798,14 @@ var MetadataUI = (function() {
         },
 
         /**
-         * Robust event binding with retry mechanism - enhanced for metadata overlays
+         * Simplified event binding since earth.js now loads first
          */
-        bindButtonWithRetry: function(selector, config, maxRetries, currentAttempt) {
-            maxRetries = maxRetries || 15;
-            currentAttempt = currentAttempt || 0;
-            
-            // Check if Earth.js configuration system is ready
+        bindButtonWithRetry: function(selector, config) {
+            // Since earth.js loads first, configuration should be available
             if (typeof bindButtonToConfiguration === 'function' && 
                 typeof configuration !== 'undefined' && 
                 configuration &&
-                configuration.save &&
-                typeof d3 !== 'undefined') {
+                configuration.save) {
                 try {
                     // For metadata overlay types, register them first
                     if (config.overlayType && config.overlayType !== 'off' && config.overlayType !== 'default') {
@@ -825,16 +821,11 @@ var MetadataUI = (function() {
                     this.createDirectBinding(selector, config);
                     return false;
                 }
-            } else if (currentAttempt < maxRetries) {
-                // Wait for Earth.js to be ready with exponential backoff
-                var delay = Math.min(1000, 100 * Math.pow(1.5, currentAttempt));
-                setTimeout(function() {
-                    UIGenerator.bindButtonWithRetry(selector, config, maxRetries, currentAttempt + 1);
-                }, delay);
             } else {
-                // Final fallback after all retries
-                console.log('UIGenerator: Using direct binding for', selector, 'after', maxRetries, 'attempts');
+                // Fallback to direct binding
+                console.log('UIGenerator: Using direct binding for', selector, '(earth.js not fully ready)');
                 this.createDirectBinding(selector, config);
+                return false;
             }
         },
 
@@ -2058,35 +2049,12 @@ if (typeof window !== 'undefined') {
             });
     }
     
-    // Check for Earth.js readiness before initializing
-    function checkEarthJSReady() {
-        return typeof d3 !== 'undefined' && 
-               typeof bindButtonToConfiguration !== 'undefined' &&
-               typeof configuration !== 'undefined';
-    }
-    
-    function waitForEarthJSAndStart() {
-        if (checkEarthJSReady()) {
-            startMetadataUI();
-        } else {
-            setTimeout(waitForEarthJSAndStart, 250);
-        }
-    }
-    
-    // Initialize when DOM is ready
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(waitForEarthJSAndStart, 1000);
-        });
-    } else {
-        setTimeout(waitForEarthJSAndStart, 1000);
-    }
-    
-    // Fallback initialization with longer delays
+    // Since metadata-ui.js now loads after earth.js, all dependencies should be available
+    // Start initialization with a small delay to ensure Earth.js has fully initialized
     setTimeout(function() {
         if (!metadataUIInitialized) {
-            console.log('MetadataUI: Fallback initialization attempt');
+            console.log('MetadataUI: Starting initialization (earth.js loaded)');
             startMetadataUI();
         }
-    }, 3000);
+    }, 500);
 }
