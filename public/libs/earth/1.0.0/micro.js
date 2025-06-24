@@ -143,11 +143,112 @@ var µ = function() {
      *          delimiter (and may be the empty string).
      */
     function dateToUTCymd(date, delimiter) {
-        return ymdRedelimit(date.toISOString(), "-", delimiter || "");
+        // Handle null/undefined cases first
+        if (date == null) {
+            console.warn('dateToUTCymd: null/undefined date provided');
+            return "current";
+        }
+        
+        // Handle NetCDF time coordinates (numbers) vs Date objects
+        if (typeof date === 'number') {
+            // This is a NetCDF time coordinate, not a JavaScript Date
+            // Return a formatted string representation
+            return String(date);
+        }
+        
+        // Handle string representations
+        if (typeof date === 'string') {
+            // Could be "current" or other string format
+            if (date === 'current') return 'current';
+            
+            // Try to parse as number (NetCDF time coordinate)
+            var numValue = parseFloat(date);
+            if (!isNaN(numValue)) {
+                return String(numValue);
+            }
+            
+            return date; // Return as-is for other string formats
+        }
+        
+        // Validate that it's a proper Date object
+        if (!(date instanceof Date)) {
+            console.warn('dateToUTCymd: Not a Date object:', typeof date, date);
+            return "current";  // Fallback to current
+        }
+        
+        // Check if Date object is valid
+        var timeValue = date.getTime();
+        if (isNaN(timeValue)) {
+            console.warn('dateToUTCymd: Invalid Date object with NaN time:', date);
+            return "current";  // Fallback to current
+        }
+        
+        // Additional safety check for extreme dates that might cause toISOString() to fail
+        if (timeValue < -8640000000000000 || timeValue > 8640000000000000) {
+            console.warn('dateToUTCymd: Date outside valid range:', date);
+            return "current";
+        }
+        
+        try {
+            return ymdRedelimit(date.toISOString(), "-", delimiter || "");
+        } catch (error) {
+            console.error('dateToUTCymd: Error calling toISOString:', error, date);
+            return "current";  // Fallback to current
+        }
     }
 
     function dateToConfig(date) {
-        return {date: µ.dateToUTCymd(date, "/"), hour: µ.zeroPad(date.getUTCHours(), 2) + "00"};
+        // Handle null/undefined cases first
+        if (date == null) {
+            console.warn('dateToConfig: null/undefined date provided');
+            return {date: "current", hour: ""};
+        }
+        
+        // Handle NetCDF time coordinates vs Date objects
+        if (typeof date === 'number') {
+            // NetCDF time coordinate - use it directly
+            return {date: "current", hour: "", metadataTime: date};
+        }
+        
+        // Handle string representations
+        if (typeof date === 'string') {
+            if (date === 'current') {
+                return {date: "current", hour: ""};
+            }
+            
+            // Try to parse as number (NetCDF time coordinate)
+            var numValue = parseFloat(date);
+            if (!isNaN(numValue)) {
+                return {date: "current", hour: "", metadataTime: numValue};
+            }
+            
+            return {date: date, hour: ""};
+        }
+        
+        // Validate Date object
+        if (!(date instanceof Date)) {
+            console.warn('dateToConfig: Not a Date object:', typeof date, date);
+            return {date: "current", hour: ""};
+        }
+        
+        var timeValue = date.getTime();
+        if (isNaN(timeValue)) {
+            console.warn('dateToConfig: Invalid Date object with NaN time:', date);
+            return {date: "current", hour: ""};
+        }
+        
+        // Additional safety check for extreme dates
+        if (timeValue < -8640000000000000 || timeValue > 8640000000000000) {
+            console.warn('dateToConfig: Date outside valid range:', date);
+            return {date: "current", hour: ""};
+        }
+        
+        try {
+            return {date: µ.dateToUTCymd(date, "/"), hour: µ.zeroPad(date.getUTCHours(), 2) + "00"};
+        } catch (error) {
+            console.error('dateToConfig: Error processing date:', error, date);
+            return {date: "current", hour: ""};
+        }
     }
 
     /**

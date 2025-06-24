@@ -42,6 +42,23 @@ var products = function() {
      * @returns {String}
      */
     function gfs1p0degPath(attr, type, surface, level) {
+        // Check if we have metadata time information available
+        if (window.metadataTimeInfo && window.metadataTimeInfo.all && 
+            typeof window.currentTimeIndex !== 'undefined') {
+            
+            // Use metadata-driven proxy endpoints
+            var currentTime = window.metadataTimeInfo.all[window.currentTimeIndex || 0];
+            var timeParam = 'time=' + currentTime;
+            var varsParam = 'vars=' + type;
+            var formatParam = 'format=json';
+            
+            // Build proxy URL
+            var proxyPath = '/proxy/data?' + [varsParam, timeParam, formatParam].join('&');
+            console.log('products.js: Generated metadata-aware path:', proxyPath, 'for type:', type);
+            return proxyPath;
+        }
+        
+        // Fallback to original logic for compatibility
         var dir = attr.date, stamp = dir === "current" ? "current" : attr.hour;
         var file = [stamp, type, surface, level, "gfs", "1.0"].filter(µ.isValue).join("-") + ".json";
         return [WEATHER_PATH, dir, file].join("/");

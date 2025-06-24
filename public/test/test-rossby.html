@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Rossby Proxy Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 1200px; 
+            margin: 20px auto; 
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .test-section {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .button {
+            background: #007bff;
+            color: white;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        .button:hover { background: #0056b3; }
+        .button:disabled { background: #ccc; cursor: not-allowed; }
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success { border-left: 4px solid #28a745; }
+        .error { border-left: 4px solid #dc3545; }
+        .loading { border-left: 4px solid #ffc107; }
+    </style>
+</head>
+<body>
+    <h1>Rossby Proxy Test Interface</h1>
+    <p>This page tests the rossby-vis proxy endpoints independent of the Earth frontend.</p>
+
+    <div class="test-section">
+        <h2>Quick Tests</h2>
+        <button class="button" onclick="testMetadata()">Test Metadata</button>
+        <button class="button" onclick="testWindData()">Test Wind Data</button>
+        <button class="button" onclick="testTemperatureData()">Test Temperature Data</button>
+        <button class="button" onclick="clearResults()">Clear Results</button>
+    </div>
+
+    <div class="test-section">
+        <h2>Test Results</h2>
+        <div id="results" class="result">Ready to test Rossby proxy endpoints...</div>
+    </div>
+
+    <script>
+        let resultDiv = document.getElementById('results');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'loading' ? 'loading' : 'success';
+            
+            const div = document.createElement('div');
+            div.className = className;
+            div.textContent = `[${timestamp}] ${message}`;
+            
+            resultDiv.appendChild(div);
+            resultDiv.scrollTop = resultDiv.scrollHeight;
+        }
+
+        function clearResults() {
+            resultDiv.innerHTML = 'Results cleared...';
+        }
+
+        async function testRequest(url, description) {
+            log(`Testing ${description}...`, 'loading');
+            log(`URL: ${url}`, 'info');
+            
+            try {
+                const response = await fetch(url);
+                log(`Status: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                log(`✓ Success! Response received`, 'success');
+                
+                // Parse different response types
+                if (data.metadata && data.data) {
+                    // Data endpoint response
+                    const vars = Object.keys(data.metadata.variables || {});
+                    const dataKeys = Object.keys(data.data || {});
+                    log(`  Variables: ${vars.join(', ')}`, 'info');
+                    log(`  Data keys: ${dataKeys.join(', ')}`, 'info');
+                    
+                    dataKeys.forEach(key => {
+                        const array = data.data[key];
+                        if (Array.isArray(array)) {
+                            const sample = array.slice(0, 3).map(v => v !== null ? Number(v).toFixed(3) : 'null').join(', ');
+                            log(`  ${key}: ${array.length} values (${sample}...)`, 'info');
+                        }
+                    });
+                } else if (data.coordinates) {
+                    // Metadata endpoint response
+                    const coords = Object.keys(data.coordinates);
+                    const vars = Object.keys(data.variables || {});
+                    log(`  Coordinates: ${coords.join(', ')}`, 'info');
+                    log(`  Variables: ${vars.slice(0, 5).join(', ')}${vars.length > 5 ? '...' : ''}`, 'info');
+                    log(`  Grid size: ${data.dimensions?.latitude?.size || 'unknown'} x ${data.dimensions?.longitude?.size || 'unknown'}`, 'info');
+                } else {
+                    // Other response
+                    log(`  Response: ${JSON.stringify(data).substring(0, 100)}...`, 'info');
+                }
+                
+                log('---', 'success');
+                
+            } catch (error) {
+                log(`✗ Error: ${error.message}`, 'error');
+                log('---', 'error');
+                console.error('Request failed:', error);
+            }
+        }
+
+        function testMetadata() {
+            testRequest('/proxy/metadata', 'metadata endpoint');
+        }
+
+        function testWindData() {
+            testRequest('/proxy/data?vars=u10,v10&time=700464&format=json', 'wind data (u10,v10)');
+        }
+
+        function testTemperatureData() {
+            testRequest('/proxy/data?vars=t2m&time=700464&format=json', 'temperature data (t2m)');
+        }
+
+        // Auto-run a basic test on page load
+        window.addEventListener('load', function() {
+            setTimeout(() => {
+                log('Page loaded. Ready for testing!', 'success');
+            }, 500);
+        });
+    </script>
+</body>
+</html>

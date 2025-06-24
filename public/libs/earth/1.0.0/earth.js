@@ -265,12 +265,50 @@
 
     /**
      * Modifies the configuration to navigate to the chronologically next or previous data layer.
+     * Enhanced to support metadata-driven navigation with NetCDF time coordinates.
      */
     function navigate(step) {
         if (downloadsInProgress > 0) {
             log.debug("Download in progress--ignoring nav request.");
             return;
         }
+        
+        // Check if we have metadata-driven navigation available
+        if (window.metadataTimeInfo && window.metadataTimeInfo.all && 
+            typeof window.currentTimeIndex !== 'undefined') {
+            
+            console.log("Using metadata-driven navigation, step:", step);
+            var currentIndex = window.currentTimeIndex || 0;
+            var newIndex = currentIndex + step;
+            
+            // Clamp to bounds
+            newIndex = Math.max(0, Math.min(newIndex, window.metadataTimeInfo.all.length - 1));
+            
+            if (newIndex !== currentIndex) {
+                var newTime = window.metadataTimeInfo.all[newIndex];
+                window.currentTimeIndex = newIndex;
+                
+                // Update configuration with metadata time
+                configuration.save({
+                    metadataTime: newTime,
+                    metadataTimeIndex: newIndex,
+                    date: "current", // Keep date as current for metadata mode
+                    hour: ""
+                });
+                
+                console.log("Navigated to metadata time:", newTime, "index:", newIndex);
+                
+                // Update UI displays
+                if (window.UIGenerator && window.UIGenerator.updateCurrentTimeDisplay) {
+                    window.UIGenerator.updateCurrentTimeDisplay(newTime, window.metadataTimeInfo);
+                }
+            } else {
+                console.log("Navigation blocked - already at boundary");
+            }
+            return;
+        }
+        
+        // Fallback to original navigation logic
         var next = gridAgent.value().primaryGrid.navigate(step);
         if (next) {
             configuration.save(µ.dateToConfig(next));

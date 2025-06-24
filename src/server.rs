@@ -4,7 +4,10 @@ use tower_http::trace::TraceLayer;
 use tracing::info;
 
 use crate::{
-    handlers::{index, proxy_data, proxy_metadata, static_asset},
+    handlers::{
+        earth_dynamic_data, earth_temp_data, earth_wind_data, index, proxy_data, proxy_metadata,
+        static_asset,
+    },
     middleware::{
         error_logging_middleware, health_check_middleware, request_tracing_middleware,
         security_headers_middleware,
@@ -37,6 +40,21 @@ pub async fn run_server(
         .route("/", get(index))
         .route("/proxy/metadata", get(proxy_metadata))
         .route("/proxy/data", get(proxy_data))
+        // Earth frontend compatible routes for live Rossby data (MUST come before /*path)
+        // Specific routes first (for backward compatibility)
+        .route(
+            "/data/weather/current/current-wind-surface-level-gfs-1.0.json",
+            get(earth_wind_data),
+        )
+        .route(
+            "/data/weather/current/current-temp-surface-level-gfs-1.0.json",
+            get(earth_temp_data),
+        )
+        // Dynamic route for any variable discovered from metadata
+        .route(
+            "/data/weather/current/current-:variable-surface-level-gfs-1.0.json",
+            get(earth_dynamic_data),
+        )
         .route("/*path", get(static_asset))
         .layer(axum_middleware::from_fn_with_state(
             state.clone(),
