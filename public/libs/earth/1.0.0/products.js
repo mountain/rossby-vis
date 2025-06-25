@@ -52,6 +52,17 @@ var products = function() {
      * @returns {String}
      */
     function gfs1p0degPath(attr, type, surface, level) {
+        // Check if we're in metadata-driven mode - for any type that needs time-based data
+        if (attr.metadataTime && (type === "wind" || type === "temp")) {
+            if (type === "wind") {
+                // Use proxy endpoint with metadata time for wind data
+                return '/proxy/data?vars=u10,v10&time=' + attr.metadataTime + '&format=json';
+            } else if (type === "temp") {
+                // Use proxy endpoint with metadata time for temperature data
+                return '/proxy/data?vars=t2m&time=' + attr.metadataTime + '&format=json';
+            }
+        }
+        
         // Use Earth frontend compatible endpoints that delegate to our dynamic handlers
         var dir = attr.date || "current";
         var stamp = dir === "current" ? "current" : attr.hour;
@@ -205,8 +216,30 @@ var products = function() {
                     builder: function(file) {
                         console.log('Wind builder called with file:', file);
                         
-                        // The server returns Earth-compatible format (array of EarthDataPoint objects)
-                        if(file instanceof Array && file.length >= 2) {
+                        // Check if this is a proxy response format (metadata-driven)
+                        if (file && file.data && file.data.u10 && file.data.v10) {
+                            // Proxy response format: {data: {u10: [...], v10: [...]}, metadata: {...}}
+                            var uData = file.data.u10;
+                            var vData = file.data.v10;
+                            var metadata = file.metadata || {};
+                            
+                            console.log('Wind data loaded, U data length:', uData ? uData.length : 'no U data', 'V data length:', vData ? vData.length : 'no V data', 'metadata:', metadata);
+                            
+                            // Create Earth-compatible header from metadata
+                            var header = createHeaderFromMetadata(metadata, "u10", "Wind");
+                            header.parameterCategoryName = "Momentum";
+                            header.parameterNumberName = "Wind";
+                            
+                            return {
+                                header: header,
+                                interpolate: bilinearInterpolateVector,
+                                data: function(i) {
+                                    return [uData[i], vData[i]];
+                                }
+                            };
+                        }
+                        // Traditional Earth-compatible format (array of EarthDataPoint objects)
+                        else if(file instanceof Array && file.length >= 2) {
                             // Wind data: file[0] is U component, file[1] is V component
                             var uData = file[0].data;
                             var vData = file[1].data;

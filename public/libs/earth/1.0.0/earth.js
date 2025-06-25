@@ -277,7 +277,7 @@
         if (window.metadataTimeInfo && window.metadataTimeInfo.all && 
             typeof window.currentTimeIndex !== 'undefined') {
             
-            console.log("Using metadata-driven navigation, step:", step);
+            console.log("Earth.js: Using metadata-driven navigation, step:", step);
             var currentIndex = window.currentTimeIndex || 0;
             var newIndex = currentIndex + step;
             
@@ -288,7 +288,7 @@
                 var newTime = window.metadataTimeInfo.all[newIndex];
                 window.currentTimeIndex = newIndex;
                 
-                // Update configuration with metadata time
+                // Update configuration with metadata time to trigger data reload
                 configuration.save({
                     metadataTime: newTime,
                     metadataTimeIndex: newIndex,
@@ -296,14 +296,14 @@
                     hour: ""
                 });
                 
-                console.log("Navigated to metadata time:", newTime, "index:", newIndex);
+                console.log("Earth.js: Navigated to metadata time:", newTime, "index:", newIndex);
                 
-                // Update UI displays
+                // Update UI displays if available
                 if (window.UIGenerator && window.UIGenerator.updateCurrentTimeDisplay) {
                     window.UIGenerator.updateCurrentTimeDisplay(newTime, window.metadataTimeInfo);
                 }
             } else {
-                console.log("Navigation blocked - already at boundary");
+                console.log("Earth.js: Navigation blocked - already at boundary");
             }
             return;
         }
@@ -973,7 +973,8 @@
             var changed = _.keys(configuration.changedAttributes()), rebuildRequired = false;
 
             // Build a new grid if any layer-related attributes have changed.
-            if (_.intersection(changed, ["date", "hour", "param", "surface", "level"]).length > 0) {
+            // Include metadata time attributes to support metadata-driven navigation
+            if (_.intersection(changed, ["date", "hour", "param", "surface", "level", "metadataTime", "metadataTimeIndex"]).length > 0) {
                 rebuildRequired = true;
             }
             // Build a new grid if the new overlay type is different from the current one.
