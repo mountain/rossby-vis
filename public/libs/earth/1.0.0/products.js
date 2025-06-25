@@ -58,7 +58,7 @@ var products = function() {
         var file = [stamp, type, surface, level, "gfs", "1.0"].filter(µ.isValue).join("-") + ".json";
         var path = [WEATHER_PATH, dir, file].join("/");
         
-        console.log('products.js: Generated Earth-compatible path:', path, 'for type:', type);
+        // Earth-compatible path generation for type: ' + type
         return path;
     }
 
@@ -133,22 +133,26 @@ var products = function() {
         var varInfo = variables[variable] || {};
         var attributes = varInfo.attributes || {};
         
-        // Extract grid information
-        var nx = (dims.longitude && dims.longitude.size) || 360;
-        var ny = (dims.latitude && dims.latitude.size) || 181;
+        // Extract grid information - Earth expects longitude as nx, latitude as ny
+        var nx = (dims.longitude && dims.longitude.size) || 1440;
+        var ny = (dims.latitude && dims.latitude.size) || 721;
         
         var lonArray = coords.longitude || [];
         var latArray = coords.latitude || [];
         var timeArray = coords.time || [];
         
+        // Rossby typically provides coordinates in ascending order
         var lo1 = lonArray.length > 0 ? lonArray[0] : 0;
-        var lo2 = lonArray.length > 1 ? lonArray[lonArray.length - 1] : 359;
-        var la1 = latArray.length > 0 ? latArray[0] : 90;
-        var la2 = latArray.length > 1 ? latArray[latArray.length - 1] : -90;
+        var lo2 = lonArray.length > 1 ? lonArray[lonArray.length - 1] : 359.75;
+        var la1 = latArray.length > 0 ? latArray[0] : 90;  // Usually starts at 90 (North)  
+        var la2 = latArray.length > 1 ? latArray[latArray.length - 1] : -90; // Ends at -90 (South)
         
         // Calculate grid spacing
-        var dx = nx > 1 ? (lo2 - lo1) / (nx - 1) : 1.0;
-        var dy = ny > 1 ? Math.abs(la1 - la2) / (ny - 1) : 1.0;
+        var dx = nx > 1 ? (lo2 - lo1) / (nx - 1) : 0.25;
+        var dy = ny > 1 ? Math.abs(la1 - la2) / (ny - 1) : 0.25;
+        
+        console.log('Grid info for', variable, '- nx:', nx, 'ny:', ny, 'dx:', dx, 'dy:', dy);
+        console.log('Coordinate bounds - lon:', lo1, 'to', lo2, 'lat:', la1, 'to', la2);
         
         // Get reference time from first time coordinate
         var refTimeValue = timeArray.length > 0 ? timeArray[0] : 700464;
@@ -278,19 +282,16 @@ var products = function() {
                         {label: "K",  conversion: function(x) { return x; },                precision: 1}
                     ],
                     scale: {
-                        bounds: [193, 328],
+                        bounds: [240, 320],  // More realistic temperature range
                         gradient: µ.segmentedColorScale([
-                            [193,     [37, 4, 42]],
-                            [206,     [41, 10, 130]],
-                            [219,     [81, 40, 40]],
-                            [233.15,  [192, 37, 149]],  // -40 C/F
-                            [255.372, [70, 215, 215]],  // 0 F
-                            [273.15,  [21, 84, 187]],   // 0 C
-                            [275.15,  [24, 132, 14]],   // just above 0 C
-                            [291,     [247, 251, 59]],
-                            [298,     [235, 167, 21]],
-                            [311,     [230, 71, 39]],
-                            [328,     [88, 27, 67]]
+                            [240,     [37, 4, 42]],      // Very cold (purple)
+                            [250,     [41, 10, 130]],    // Cold (blue) 
+                            [260,     [70, 215, 215]],   // Cool (cyan)
+                            [273.15,  [21, 84, 187]],    // 0°C (blue)
+                            [280,     [24, 132, 14]],    // Mild (green)
+                            [290,     [247, 251, 59]],   // Warm (yellow)
+                            [300,     [235, 167, 21]],   // Hot (orange)
+                            [320,     [88, 27, 67]]      // Very hot (red)
                         ])
                     }
                 });
@@ -343,19 +344,17 @@ var products = function() {
                         {label: "K",  conversion: function(x) { return x; },                precision: 1}
                     ],
                     scale: {
-                        bounds: [193, 328],
+                        bounds: [240, 310],
                         gradient: µ.segmentedColorScale([
-                            [193,     [37, 4, 42]],
-                            [206,     [41, 10, 130]],
-                            [219,     [81, 40, 40]],
-                            [233.15,  [192, 37, 149]],  // -40 C/F
-                            [255.372, [70, 215, 215]],  // 0 F
-                            [273.15,  [21, 84, 187]],   // 0 C
-                            [275.15,  [24, 132, 14]],   // just above 0 C
-                            [291,     [247, 251, 59]],
-                            [298,     [235, 167, 21]],
-                            [311,     [230, 71, 39]],
-                            [328,     [88, 27, 67]]
+                            [240,     [37, 4, 42]],      // Very cold (purple) -33°C
+                            [250,     [41, 10, 130]],    // Cold (blue) -23°C
+                            [260,     [70, 215, 215]],   // Cool (cyan) -13°C
+                            [270,     [21, 84, 187]],    // Cool (blue) -3°C
+                            [273.15,  [24, 132, 14]],    // 0°C (green)
+                            [280,     [247, 251, 59]],   // Mild (yellow) 7°C
+                            [290,     [235, 167, 21]],   // Warm (orange) 17°C
+                            [300,     [230, 71, 39]],    // Hot (red) 27°C
+                            [310,     [88, 27, 67]]      // Very hot (dark red) 37°C
                         ])
                     }
                 });
