@@ -28,7 +28,17 @@ var products = function() {
             load: function(cancel) {
                 var me = this;
                 return when.map(this.paths, µ.loadJson).then(function(files) {
-                    return cancel.requested ? null : _.extend(me, buildGrid(me.builder.apply(me, files)));
+                    if(cancel.requested) return null;
+                    
+                    // Handle both vector and scalar fields
+                    if(me.field === "vector" && files instanceof Array) {
+                        return _.extend(me, buildGrid(me.builder.apply(me, files)));
+                    } else if(me.field === "scalar") {
+                        // For scalar fields, files[0] is the loaded JSON from proxy
+                        return _.extend(me, buildGrid(me.builder.apply(me, files)));
+                    } else {
+                        return null;
+                    }
                 });
             }
         }, overrides);
@@ -42,26 +52,14 @@ var products = function() {
      * @returns {String}
      */
     function gfs1p0degPath(attr, type, surface, level) {
-        // Check if we have metadata time information available
-        if (window.metadataTimeInfo && window.metadataTimeInfo.all && 
-            typeof window.currentTimeIndex !== 'undefined') {
-            
-            // Use metadata-driven proxy endpoints
-            var currentTime = window.metadataTimeInfo.all[window.currentTimeIndex || 0];
-            var timeParam = 'time=' + currentTime;
-            var varsParam = 'vars=' + type;
-            var formatParam = 'format=json';
-            
-            // Build proxy URL
-            var proxyPath = '/proxy/data?' + [varsParam, timeParam, formatParam].join('&');
-            console.log('products.js: Generated metadata-aware path:', proxyPath, 'for type:', type);
-            return proxyPath;
-        }
-        
-        // Fallback to original logic for compatibility
-        var dir = attr.date, stamp = dir === "current" ? "current" : attr.hour;
+        // Use Earth frontend compatible endpoints that delegate to our dynamic handlers
+        var dir = attr.date || "current";
+        var stamp = dir === "current" ? "current" : attr.hour;
         var file = [stamp, type, surface, level, "gfs", "1.0"].filter(µ.isValue).join("-") + ".json";
-        return [WEATHER_PATH, dir, file].join("/");
+        var path = [WEATHER_PATH, dir, file].join("/");
+        
+        console.log('products.js: Generated Earth-compatible path:', path, 'for type:', type);
+        return path;
     }
 
     function gfsDate(attr) {
@@ -139,13 +137,26 @@ var products = function() {
                     paths: [gfs1p0degPath(attr, "wind", attr.surface, attr.level)],
                     date: gfsDate(attr),
                     builder: function(file) {
-                        var uData = file[0].data, vData = file[1].data;
-                        return {
-                            header: file[0].header,
-                            interpolate: bilinearInterpolateVector,
-                            data: function(i) {
-                                return [uData[i], vData[i]];
-                            }
+                        console.log('Wind builder called with file:', file);
+                        
+                        // The server returns Earth-compatible format (array of EarthDataPoint objects)
+                        if(file instanceof Array && file.length >= 2) {
+                            // Wind data: file[0] is U component, file[1] is V component
+                            var uData = file[0].data;
+                            var vData = file[1].data;
+                            
+                            console.log('Wind data loaded, header:', file[0].header, 'U data length:', uData ? uData.length : 'no U data', 'V data length:', vData ? vData.length : 'no V data');
+                            
+                            return {
+                                header: file[0].header,
+                                interpolate: bilinearInterpolateVector,
+                                data: function(i) {
+                                    return [uData[i], vData[i]];
+                                }
+                            };
+                        } else {
+                            console.error('Wind builder: Invalid file format or insufficient components:', file);
+                            return null;
                         }
                     },
                     units: [
@@ -165,8 +176,8 @@ var products = function() {
             }
         },
 
-        "temp": {
-            matches: _.matches({param: "wind", overlayType: "temp"}),
+        "temperature": {
+            matches: _.matches({param: "wind", overlayType: "temperature"}),
             create: function(attr) {
                 return buildProduct({
                     field: "scalar",
@@ -178,13 +189,25 @@ var products = function() {
                     paths: [gfs1p0degPath(attr, "temp", attr.surface, attr.level)],
                     date: gfsDate(attr),
                     builder: function(file) {
-                        var record = file[0], data = record.data;
-                        return {
-                            header: record.header,
-                            interpolate: bilinearInterpolateScalar,
-                            data: function(i) {
-                                return data[i];
-                            }
+                        console.log('Temperature builder called with file:', file);
+                        
+                        // The server returns Earth-compatible format (array of EarthDataPoint objects)
+                        if(file instanceof Array && file.length > 0) {
+                            var record = file[0];
+                            var data = record.data;
+                            
+                            console.log('Temperature data loaded, header:', record.header, 'data length:', data ? data.length : 'no data');
+                            
+                            return {
+                                header: record.header,
+                                interpolate: bilinearInterpolateScalar,
+                                data: function(i) {
+                                    return data[i];
+                                }
+                            };
+                        } else {
+                            console.error('Temperature builder: Invalid file format:', file);
+                            return null;
                         }
                     },
                     units: [
@@ -704,6 +727,7 @@ var products = function() {
         });
         return results.filter(µ.isValue);
     }
+    productsFor.FACTORIES = FACTORIES;
 
     return {
         overlayTypes: d3.set(_.keys(FACTORIES)),

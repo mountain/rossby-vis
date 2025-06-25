@@ -256,12 +256,32 @@ var µ = function() {
      */
     function log() {
         function format(o) { return o && o.stack ? o + "\n" + o.stack : o; }
+        var activeTimers = {};  // Track active timers to prevent duplicates
+        
         return {
             debug:   function(s) { if (console && console.log) console.log(format(s)); },
             info:    function(s) { if (console && console.info) console.info(format(s)); },
             error:   function(e) { if (console && console.error) console.error(format(e)); },
-            time:    function(s) { if (console && console.time) console.time(format(s)); },
-            timeEnd: function(s) { if (console && console.timeEnd) console.timeEnd(format(s)); }
+            time:    function(s) { 
+                if (console && console.time) {
+                    var timerName = format(s);
+                    // End existing timer if it exists to prevent "Timer already exists" error
+                    if (activeTimers[timerName]) {
+                        console.timeEnd(timerName);
+                    }
+                    activeTimers[timerName] = true;
+                    console.time(timerName);
+                }
+            },
+            timeEnd: function(s) { 
+                if (console && console.timeEnd) {
+                    var timerName = format(s);
+                    if (activeTimers[timerName]) {
+                        console.timeEnd(timerName);
+                        delete activeTimers[timerName];
+                    }
+                }
+            }
         };
     }
 

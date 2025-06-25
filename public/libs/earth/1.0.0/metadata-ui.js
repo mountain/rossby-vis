@@ -768,17 +768,20 @@ var MetadataUI = (function() {
             }
             
             // Add default controls
-            this.addOverlayButton(mainContainer, 'overlay-off', 'None', {overlayType: 'off'});
-            this.addOverlayButton(mainContainer, 'overlay-wind', 'Wind', {overlayType: 'default'});
+            //this.addOverlayButton(mainContainer, 'overlay-off', 'None', {overlayType: 'off'});
+            //this.addOverlayButton(mainContainer, 'overlay-wind', 'Wind', {overlayType: 'default'});
             
-            // Add scalar variable overlays
+            // Add scalar variable overlays - use specific variable names as overlay types
             variableAnalysis.scalar.forEach(function(variable) {
                 var buttonId = 'overlay-' + variable.name;
                 UIGenerator.addOverlayButton(mainContainer, buttonId, variable.display, {
-                    overlayType: variable.name
+                    overlayType: variable.name, param: 'wind'
                 });
+                
+                // Register the variable as a valid overlay type
+                UIGenerator.registerVariableOverlayType(variable);
             });
-            
+
             console.log('UIGenerator: Overlay controls generated successfully');
         },
 
@@ -853,6 +856,215 @@ var MetadataUI = (function() {
                 console.warn('UIGenerator: Failed to register overlay type', overlayType, ':', error);
             }
         },
+        
+        /**
+         * Register variable-specific overlay type with proper factory
+         */
+        registerVariableOverlayType: function(variable) {
+            try {
+                var overlayType = variable.name;
+                
+                // Add to products.overlayTypes if available
+                if (typeof products !== 'undefined' && products && products.overlayTypes) {
+                    if (typeof products.overlayTypes.add === 'function') {
+                        products.overlayTypes.add(overlayType);
+                    }
+                    console.log('UIGenerator: Registered variable overlay type:', overlayType);
+                }
+                
+                // Create product factory for this variable
+                this.createVariableProductFactory(variable);
+                
+            } catch (error) {
+                console.warn('UIGenerator: Failed to register variable overlay type', overlayType, ':', error);
+            }
+        },
+        
+        /**
+         * Create product factory for specific variable
+         */
+        createVariableProductFactory: function(variable) {
+            if (typeof products === 'undefined' || !products || !products.productsFor || !products.productsFor.FACTORIES) {
+                console.warn('UIGenerator: Products system not available');
+                return;
+            }
+            
+            var overlayType = variable.name;
+            
+            // Create factory for this specific variable
+            products.productsFor.FACTORIES[overlayType] = {
+                matches: function(attr) {
+                    return attr.param === "wind" && attr.overlayType === overlayType;
+                },
+                create: function(attr) {
+                    return UIGenerator.createVariableProduct(variable, attr);
+                }
+            };
+            
+            console.log('UIGenerator: Created product factory for variable:', overlayType);
+        },
+        
+        /**
+         * Create Earth.js product for specific variable
+         */
+        createVariableProduct: function(variable, attr) {
+            var product = {
+                field: "scalar",
+                type: variable.name,
+                description: function(langCode) {
+                    return {
+                        name: variable.longName || variable.name,
+                        qualifier: " @ Surface"
+                    };
+                },
+                interpolate: window.bilinearInterpolateScalar || function() { return null; },
+                paths: ['/data/weather/current/current-' + variable.name + '-surface-level-gfs-1.0.json'],
+                date: new Date(),
+                builder: function(file) {
+                    console.log('Variable builder called for', variable.name, 'with file:', file);
+                    
+                    if(file instanceof Array && file.length > 0) {
+                        var record = file[0];
+                        var data = record.data;
+                        
+                        console.log('Variable data loaded for', variable.name, ', header:', record.header, 'data length:', data ? data.length : 'no data');
+                        
+                        // Create proper grid object with all required Earth.js methods
+                        var grid = {
+                            header: record.header,
+                            interpolate: window.bilinearInterpolateScalar || function() { return null; },
+                            data: function(i) {
+                                return data[i];
+                            },
+                            // Add required description method for Earth.js - must return an object with name and qualifier
+                            description: function(langCode) {
+                                return {
+                                    name: variable.display || variable.name,
+                                    qualifier: " @ Surface"
+                                };
+                            },
+                            // Add scale method if it doesn't exist
+                            scale: UIGenerator.getVariableScale(variable),
+                            // Add units method
+                            units: UIGenerator.getVariableUnits(variable),
+                            // Add type for grid identification
+                            type: variable.name,
+                            // Add source information
+                            source: "Rossby Server"
+                        };
+                        
+                        return grid;
+                    } else {
+                        console.error('Variable builder: Invalid file format for', variable.name, ':', file);
+                        return null;
+                    }
+                },
+                units: UIGenerator.getVariableUnits(variable),
+                scale: UIGenerator.getVariableScale(variable)
+            };
+            
+            // Add the required load method that Earth.js expects
+            product.load = function(cancel) {
+                var me = this;
+                console.log('Loading data for variable:', variable.name, 'from paths:', this.paths);
+                
+                // Use the global when library for loading JSON files
+                if (typeof when !== 'undefined' && when.map && typeof µ !== 'undefined' && µ.loadJson) {
+                    return when.map(this.paths, µ.loadJson).then(function(files) {
+                        if (cancel && cancel.requested) {
+                            console.log('Load cancelled for variable:', variable.name);
+                            return null;
+                        }
+                        
+                        console.log('Files loaded for variable:', variable.name, ', processing...');
+                        var grid = me.builder.apply(me, files);
+                        
+                        if (grid && typeof buildGrid === 'function') {
+                            return Object.assign(me, buildGrid(grid));
+                        } else {
+                            // Fallback: return the grid directly
+                            return Object.assign(me, grid);
+                        }
+                    }).catch(function(error) {
+                        console.error('Failed to load data for variable:', variable.name, ':', error);
+                        return null;
+                    });
+                } else {
+                    console.warn('Required libraries not available for loading:', variable.name);
+                    return Promise.resolve(null);
+                }
+            };
+            
+            // Add navigation method
+            product.navigate = function(step) {
+                // Simple navigation - for now just return current date
+                return this.date;
+            };
+            
+            return product;
+        },
+        
+        /**
+         * Get appropriate units for variable
+         */
+        getVariableUnits: function(variable) {
+            switch (variable.category) {
+                case 'temperature':
+                    return [
+                        {label: "°C", conversion: function(x) { return x - 273.15; }, precision: 1},
+                        {label: "°F", conversion: function(x) { return x * 9/5 - 459.67; }, precision: 1},
+                        {label: "K", conversion: function(x) { return x; }, precision: 1}
+                    ];
+                case 'pressure':
+                    return [
+                        {label: "hPa", conversion: function(x) { return x / 100; }, precision: 0},
+                        {label: "Pa", conversion: function(x) { return x; }, precision: 0}
+                    ];
+                case 'humidity':
+                    return [
+                        {label: "%", conversion: function(x) { return x; }, precision: 1}
+                    ];
+                default:
+                    return [
+                        {label: variable.units || "units", conversion: function(x) { return x; }, precision: 2}
+                    ];
+            }
+        },
+        
+        /**
+         * Get appropriate color scale for variable
+         */
+        getVariableScale: function(variable) {
+            switch (variable.category) {
+                case 'temperature':
+                    return {
+                        bounds: [193, 328],
+                        gradient: function(v, a) {
+                            if (window.µ && window.µ.segmentedColorScale) {
+                                return window.µ.segmentedColorScale([
+                                    [193, [37, 4, 42]],
+                                    [233.15, [192, 37, 149]],
+                                    [255.372, [70, 215, 215]],
+                                    [273.15, [21, 84, 187]],
+                                    [298, [235, 167, 21]],
+                                    [328, [88, 27, 67]]
+                                ])(v, a);
+                            }
+                            return [255, 255, 255, a || 1];
+                        }
+                    };
+                case 'pressure':
+                    return {
+                        bounds: [90000, 105000],
+                        gradient: function(v, a) { return [100, 150, 200, a || 1]; }
+                    };
+                default:
+                    return {
+                        bounds: [0, 1],
+                        gradient: function(v, a) { return [200, 200, 200, a || 1]; }
+                    };
+            }
+        },
 
         /**
          * Ensure product factory exists for metadata overlay
@@ -892,7 +1104,13 @@ var MetadataUI = (function() {
             return {
                 field: "scalar",
                 type: overlayType,
-                description: overlayType + " @ Surface",
+                description: function(langCode) {
+                    return {
+                        name: overlayType + " @ Surface",
+                        qualifier: " @ Surface"
+                    };
+                },
+                interpolate: window.bilinearInterpolateScalar || function() { return null; },
                 paths: [proxyPath],
                 date: new Date(),
                 builder: function(file) {
@@ -1091,15 +1309,15 @@ var MetadataUI = (function() {
             var currentTime = window.metadataTimeInfo ? 
                 window.metadataTimeInfo.all[window.currentTimeIndex || 0] : 
                 timeInfo.start;
-                
+
             // Convert NetCDF time to proxy query parameters
             var timeParam = 'time=' + currentTime;
-            var varsParam = 'vars=' + variable;
+            var varsParam = 'vars=' + attr.variable;
             var formatParam = 'format=json';
-            
+
             // Build proxy URL
             var proxyPath = '/proxy/data?' + [varsParam, timeParam, formatParam].join('&');
-            
+
             console.log('UIGenerator: Generated metadata-aware path:', proxyPath, 'for variable:', variable);
             return proxyPath;
         },
@@ -1167,7 +1385,7 @@ var MetadataUI = (function() {
                                 if (window.metadataTimeInfo && window.currentTimeIndex !== undefined) {
                                     var currentTime = window.metadataTimeInfo.all[window.currentTimeIndex];
                                     var currentIndex = window.currentTimeIndex;
-                                    var currentDisplayText = 'Date | ' + currentTime + ' (step ' + (currentIndex + 1) + '/' + window.metadataTimeInfo.count + ') | Raw NetCDF time coordinates';
+                                    var currentDisplayText = currentTime + ' (step ' + (currentIndex + 1) + '/' + window.metadataTimeInfo.count + ') | Raw NetCDF time coordinates';
                                     currentDateElement.text(currentDisplayText);
                                 } else {
                                     currentDateElement.text(displayText);
@@ -1445,7 +1663,7 @@ var MetadataUI = (function() {
             var dateElement = d3.select('#data-date');
             if (!dateElement.empty()) {
                 var currentIndex = timeInfo.all.indexOf(currentTime);
-                var displayText = 'Date | ' + currentTime + ' (step ' + (currentIndex + 1) + '/' + timeInfo.count + ') | Raw NetCDF time coordinates';
+                var displayText = currentTime + ' (step ' + (currentIndex + 1) + '/' + timeInfo.count + ') | Raw NetCDF time coordinates';
                 dateElement.text(displayText);
                 console.log('UIGenerator: Updated current time display:', displayText);
                 
@@ -1542,6 +1760,7 @@ var MetadataUI = (function() {
                     name: {en: variable.display_name, ja: variable.display_name},
                     qualifier: {en: " @ " + this.describeSurface(attr), ja: " @ " + this.describeSurface(attr)}
                 }),
+                interpolate: window.bilinearInterpolateScalar || function() { return null; },
                 paths: [this.dynamicDataPath(attr, variable.name)],
                 date: this.gfsDate(attr),
                 builder: function(file) {
@@ -1570,6 +1789,7 @@ var MetadataUI = (function() {
                     name: {en: variable.display_name, ja: variable.display_name},
                     qualifier: {en: " @ " + this.describeSurface(attr), ja: " @ " + this.describeSurface(attr)}
                 }),
+                interpolate: window.bilinearInterpolateScalar || function() { return null; },
                 paths: [this.dynamicDataPath(attr, variable.name)],
                 date: this.gfsDate(attr),
                 builder: function(file) {
@@ -1764,14 +1984,15 @@ var MetadataUI = (function() {
             
             // Generate metadata-aware product factories
             var metadataProducts = this.generateMetadataProducts(uiConfig);
-            
+
             // Merge with existing products
-            if (products.all) {
+            if (products.productsFor.FACTORIES) {
                 Object.keys(metadataProducts).forEach(function(key) {
-                    products.all[key] = metadataProducts[key];
+                    products.productsFor.FACTORIES[key] = metadataProducts[key];
                 });
             }
-            
+            products.gfs1p0degPath = UIGenerator.generateMetadataAwarePath;
+
             console.log('EarthJSIntegration: Integrated', Object.keys(metadataProducts).length, 'metadata products');
         },
         
@@ -1816,16 +2037,29 @@ var MetadataUI = (function() {
         createScalarProduct: function(variable, attr) {
             var config = this.getVariableConfig(variable);
             
-            return {
+            var product = {
                 field: "scalar",
                 type: variable.name,
-                description: variable.longName || variable.name,
+                description: function(langCode) {
+                    return {
+                        name: variable.longName || variable.name,
+                        qualifier: " @ Surface"
+                    };
+                },
+                interpolate: window.bilinearInterpolateScalar || function() { return null; },
                 paths: [this.buildProxyPath(variable.name, attr)],
                 date: new Date(), // Current time
                 builder: function(file) {
-                    var record = file[0];
+                    var record = file;
                     if (!record || !record.data) {
                         console.warn('EarthJSIntegration: Invalid data for', variable.name);
+                        return null;
+                    }
+                    
+                    // Handle both direct data arrays and data objects with variable names
+                    var data = record.data[variable.name] || record.data;
+                    if (!Array.isArray(data)) {
+                        console.warn('EarthJSIntegration: Data is not an array for', variable.name);
                         return null;
                     }
                     
@@ -1833,13 +2067,65 @@ var MetadataUI = (function() {
                         header: record.header || {},
                         interpolate: window.bilinearInterpolateScalar || function() { return null; },
                         data: function(i) {
-                            return record.data && record.data[i];
-                        }
+                            return data[i];
+                        },
+                        // Add required description method for Earth.js - must return an object with name and qualifier
+                        description: function(langCode) {
+                            return {
+                                name: variable.display || variable.name,
+                                qualifier: " @ Surface"
+                            };
+                        },
+                         // Add other required properties
+                        scale: EarthJSIntegration.getVariableConfig(variable).scale,
+                        units: EarthJSIntegration.getVariableConfig(variable).units,
+                        type: variable.name,
+                        source: "Rossby Server"
                     };
                 },
                 units: config.units,
                 scale: config.scale
             };
+            
+            // Add the required load method that Earth.js expects
+            product.load = function(cancel) {
+                var me = this;
+                console.log('EarthJSIntegration: Loading data for variable:', variable.name, 'from paths:', this.paths);
+                
+                // Use the global when library for loading JSON files
+                if (typeof when !== 'undefined' && when.map && typeof µ !== 'undefined' && µ.loadJson) {
+                        return when.map(this.paths, µ.loadJson).then(function(files) {
+                            if (cancel && cancel.requested) {
+                                console.log('EarthJSIntegration: Load cancelled for variable:', variable.name);
+                                return null;
+                            }
+                            
+                            console.log('EarthJSIntegration: Files loaded for variable:', variable.name, ', processing...');
+                            var grid = me.builder.apply(me, files);
+                            
+                            if (grid && typeof buildGrid === 'function') {
+                                return Object.assign(me, buildGrid(grid));
+                            } else {
+                                // Fallback: return the grid directly
+                                return Object.assign(me, grid);
+                            }
+                        }).otherwise(function(error) {
+                            console.error('EarthJSIntegration: Failed to load data for variable:', variable.name, ':', error);
+                            return null;
+                        });
+                } else {
+                    console.warn('EarthJSIntegration: Required libraries not available for loading:', variable.name);
+                    return Promise.resolve(null);
+                }
+            };
+            
+            // Add navigation method
+            product.navigate = function(step) {
+                // Simple navigation - for now just return current date
+                return this.date;
+            };
+            
+            return product;
         },
         
         /**
@@ -1849,7 +2135,13 @@ var MetadataUI = (function() {
             return {
                 field: "vector",
                 type: "wind",
-                description: variable.longName || 'Wind',
+                description: function(langCode) {
+                    return {
+                        name: variable.longName || 'Wind',
+                        qualifier: " @ Surface"
+                    };
+                },
+                interpolate: window.bilinearInterpolateScalar || function() { return null; },
                 paths: [this.buildProxyPathForWind(variable.pair, attr)],
                 date: new Date(),
                 builder: function(file) {
@@ -1872,7 +2164,31 @@ var MetadataUI = (function() {
                         interpolate: window.bilinearInterpolateVector || function() { return [0, 0]; },
                         data: function(i) {
                             return [uData[i] || 0, vData[i] || 0];
-                        }
+                        },
+                        // Add required description method for Earth.js - must return an object with name and qualifier
+                        description: function(langCode) {
+                            return {
+                                name: variable.display || 'Wind',
+                                qualifier: " @ Surface"
+                            };
+                        },
+                        // Add scale and other required properties
+                        scale: {
+                            bounds: [0, 100],
+                            gradient: function(v, a) {
+                                return window.µ && window.µ.extendedSinebowColor ? 
+                                    window.µ.extendedSinebowColor(Math.min(v, 100) / 100, a) :
+                                    [255, 255, 255, a];
+                            }
+                        },
+                        units: [
+                            {label: "km/h", conversion: function(x) { return x * 3.6; }, precision: 0},
+                            {label: "m/s", conversion: function(x) { return x; }, precision: 1},
+                            {label: "kn", conversion: function(x) { return x * 1.943844; }, precision: 0},
+                            {label: "mph", conversion: function(x) { return x * 2.236936; }, precision: 0}
+                        ],
+                        type: "wind",
+                        source: "Rossby Server"
                     };
                 },
                 units: [
@@ -2017,44 +2333,108 @@ var MetadataUI = (function() {
             });
     }
 
-    // Public API
-    return {
-        MetadataService: MetadataService,
-        VariableMapper: VariableMapper,
-        UIGenerator: UIGenerator,
-        initialize: initializeMetadataDrivenUI
+    // Public API - return a factory function
+    return function(configuration, bindButtonToConfiguration, products) {
+        // Store the dependencies for use in the methods
+        var deps = {
+            configuration: configuration,
+            bindButtonToConfiguration: bindButtonToConfiguration,
+            products: products
+        };
+        
+        // Update the UIGenerator methods to use the passed dependencies
+        UIGenerator.bindButtonWithRetry = function(selector, config) {
+            if (typeof deps.bindButtonToConfiguration === 'function' && 
+                typeof deps.configuration !== 'undefined' && 
+                deps.configuration &&
+                deps.configuration.save) {
+                try {
+                    if (config.overlayType && config.overlayType !== 'off' && config.overlayType !== 'default') {
+                        this.registerMetadataOverlayType(config.overlayType);
+                    }
+                    
+                    deps.bindButtonToConfiguration(selector, config);
+                    console.log('UIGenerator: Successfully bound', selector, 'with config:', config);
+                    return true;
+                } catch (error) {
+                    console.warn('UIGenerator: Error binding event for', selector, ':', error);
+                    this.createDirectBinding(selector, config, deps.configuration);
+                    return false;
+                }
+            } else {
+                console.log('UIGenerator: Using direct binding for', selector);
+                this.createDirectBinding(selector, config, deps.configuration);
+                return false;
+            }
+        };
+        
+        UIGenerator.createDirectBinding = function(selector, config, configuration) {
+            var element = d3.select(selector);
+            if (!element.empty()) {
+                element.on('click', function() {
+                    console.log('UIGenerator: Direct click for', selector, 'with config:', config);
+                    
+                    if (typeof configuration !== 'undefined' && configuration && configuration.save) {
+                        try {
+                            if (config.overlayType && config.overlayType !== 'off' && config.overlayType !== 'default') {
+                                UIGenerator.registerMetadataOverlayType(config.overlayType);
+                            }
+                            
+                            configuration.save(config);
+                            console.log('UIGenerator: Direct configuration applied:', config);
+                        } catch (error) {
+                            console.warn('UIGenerator: Failed to apply configuration directly:', error);
+                        }
+                    } else {
+                        console.warn('UIGenerator: Configuration system not available');
+                    }
+                });
+            }
+        };
+        
+        // Update the initialization function to use dependencies
+        function initializeWithDeps() {
+            console.log('MetadataUI: Starting initialization with dependencies...');
+            
+            var metadataService = new MetadataService();
+            
+            return metadataService.initialize()
+                .then(function(uiConfig) {
+                    console.log('MetadataUI: Metadata loaded, generating UI components...');
+                    
+                    // Generate dynamic components with better timing
+                    setTimeout(function() {
+                        UIGenerator.generateHeightControls(uiConfig.levels);
+                        UIGenerator.generateOverlayControls(uiConfig.variables);
+                        UIGenerator.adaptTimeControls(uiConfig.timeRange, uiConfig.coordinates);
+                        UIGenerator.updateDataSource(uiConfig.source);
+                    }, 100);
+                    
+                    // Integrate with Earth.js products system
+                    setTimeout(function() {
+                        EarthJSIntegration.integrateProducts(uiConfig);
+                    }, 200);
+                    
+                    console.log('MetadataUI: UI components generated successfully');
+                    
+                    // Store metadata service globally for potential future use
+                    window.metadataService = metadataService;
+                    window.metadataUIConfig = uiConfig;
+                    
+                    return uiConfig;
+                })
+                .catch(function(error) {
+                    console.error('MetadataUI: Initialization failed:', error);
+                    return null;
+                });
+        }
+        
+        return {
+            MetadataService: MetadataService,
+            VariableMapper: VariableMapper,
+            UIGenerator: UIGenerator,
+            initialize: initializeWithDeps
+        };
     };
 
 })();
-
-// Initialize metadata-driven UI when DOM is ready and after Earth.js loads
-if (typeof window !== 'undefined') {
-    var metadataUIInitialized = false;
-    
-    function startMetadataUI() {
-        if (metadataUIInitialized) {
-            return; // Prevent multiple initializations
-        }
-        
-        console.log('MetadataUI: Starting initialization...');
-        metadataUIInitialized = true;
-        
-        MetadataUI.initialize()
-            .then(function(config) {
-                console.log('MetadataUI: Initialization complete', config);
-            })
-            .catch(function(error) {
-                console.error('MetadataUI: Failed to initialize:', error);
-                metadataUIInitialized = false; // Allow retry on error
-            });
-    }
-    
-    // Since metadata-ui.js now loads after earth.js, all dependencies should be available
-    // Start initialization with a small delay to ensure Earth.js has fully initialized
-    setTimeout(function() {
-        if (!metadataUIInitialized) {
-            console.log('MetadataUI: Starting initialization (earth.js loaded)');
-            startMetadataUI();
-        }
-    }, 500);
-}

@@ -256,7 +256,7 @@
             return product.load(cancel);
         });
         return when.all(loaded).then(function(products) {
-            log.time("build grids");
+            log.timeEnd("build grids");
             return {primaryGrid: products[0], overlayGrid: products[1] || products[0]};
         }).ensure(function() {
             downloadsInProgress--;
@@ -499,7 +499,7 @@
     }
 
     function interpolateField(globe, grids) {
-        if (!globe || !grids) return null;
+        if (!globe || !grids || !grids.primaryGrid) return null;
 
         var mask = createMask(globe);
         var primaryGrid = grids.primaryGrid;
@@ -738,13 +738,14 @@
     function validityDate(grids) {
         // When the active layer is considered "current", use its time as now, otherwise use current time as
         // now (but rounded down to the nearest three-hour block).
-        var THREE_HOURS = 3 * HOUR;
-        var now = grids ? grids.primaryGrid.date.getTime() : Math.floor(Date.now() / THREE_HOURS) * THREE_HOURS;
-        var parts = configuration.get("date").split("/");  // yyyy/mm/dd or "current"
-        var hhmm = configuration.get("hour");
-        return parts.length > 1 ?
-            Date.UTC(+parts[0], parts[1] - 1, +parts[2], +hhmm.substring(0, 2)) :
-            parts[0] === "current" ? now : null;
+        // var THREE_HOURS = 3 * HOUR;
+        // var now = grids ? grids.primaryGrid.date.getTime() : Math.floor(Date.now() / THREE_HOURS) * THREE_HOURS;
+        // var parts = configuration.get("date").split("/");  // yyyy/mm/dd or "current"
+        // var hhmm = configuration.get("hour");
+        // return parts.length > 1 ?
+        //     Date.UTC(+parts[0], parts[1] - 1, +parts[2], +hhmm.substring(0, 2)) :
+        //     parts[0] === "current" ? now : null;
+        return true;
     }
 
     /**
@@ -763,7 +764,7 @@
     function showGridDetails(grids) {
         showDate(grids);
         var description = "", center = "";
-        if (grids) {
+        if (grids && grids.primaryGrid) {
             var langCode = d3.select("body").attr("data-lang") || "en";
             var pd = grids.primaryGrid.description(langCode), od = grids.overlayGrid.description(langCode);
             description = od.name + od.qualifier;
@@ -1155,6 +1156,27 @@
     function start() {
         // Everything is now set up, so load configuration from the hash fragment and kick off change events.
         configuration.fetch();
+        
+        // Initialize metadata-driven UI if available
+        if (typeof MetadataUI !== 'undefined' && typeof MetadataUI === 'function') {
+            try {
+                // MetadataUI is a factory function, so we need to call it with dependencies
+                var metadataUIInstance = MetadataUI(configuration, bindButtonToConfiguration, products);
+                if (metadataUIInstance && metadataUIInstance.initialize) {
+                    metadataUIInstance.initialize().then(function(config) {
+                        console.log('MetadataUI: Initialization complete', config);
+                    }).catch(function(error) {
+                        console.error('MetadataUI: Failed to initialize:', error);
+                    });
+                } else {
+                    console.log('MetadataUI: Failed to create instance');
+                }
+            } catch (error) {
+                console.error('MetadataUI: Failed to instantiate:', error);
+            }
+        } else {
+            console.log('MetadataUI not available, using default UI');
+        }
     }
 
     when(true).then(init).then(start).otherwise(report.error);
