@@ -122,6 +122,68 @@ var products = function() {
         }
     }
 
+    /**
+     * Create Earth-compatible header from Rossby metadata for scalar variables
+     */
+    function createHeaderFromMetadata(metadata, variable, categoryName) {
+        var coords = metadata.coordinates || {};
+        var dims = metadata.dimensions || {};
+        var variables = metadata.variables || {};
+        
+        var varInfo = variables[variable] || {};
+        var attributes = varInfo.attributes || {};
+        
+        // Extract grid information
+        var nx = (dims.longitude && dims.longitude.size) || 360;
+        var ny = (dims.latitude && dims.latitude.size) || 181;
+        
+        var lonArray = coords.longitude || [];
+        var latArray = coords.latitude || [];
+        var timeArray = coords.time || [];
+        
+        var lo1 = lonArray.length > 0 ? lonArray[0] : 0;
+        var lo2 = lonArray.length > 1 ? lonArray[lonArray.length - 1] : 359;
+        var la1 = latArray.length > 0 ? latArray[0] : 90;
+        var la2 = latArray.length > 1 ? latArray[latArray.length - 1] : -90;
+        
+        // Calculate grid spacing
+        var dx = nx > 1 ? (lo2 - lo1) / (nx - 1) : 1.0;
+        var dy = ny > 1 ? Math.abs(la1 - la2) / (ny - 1) : 1.0;
+        
+        // Get reference time from first time coordinate
+        var refTimeValue = timeArray.length > 0 ? timeArray[0] : 700464;
+        
+        // Convert NetCDF time (hours since 1900-01-01) to ISO string
+        var refTime;
+        try {
+            var baseDate = new Date('1900-01-01T00:00:00Z');
+            var refDate = new Date(baseDate.getTime() + refTimeValue * 3600 * 1000);
+            refTime = refDate.toISOString();
+        } catch (e) {
+            refTime = new Date().toISOString(); // Fallback to current time
+        }
+        
+        return {
+            discipline: 0,
+            disciplineName: "Meteorological products",
+            refTime: refTime,
+            parameterCategory: 0, // Temperature category
+            parameterCategoryName: categoryName || "Temperature",
+            parameterNumber: 0,
+            parameterNumberName: attributes.long_name || variable,
+            parameterUnit: attributes.units || "K",
+            nx: nx,
+            ny: ny,
+            lo1: lo1,
+            la1: la1,
+            lo2: lo2,
+            la2: la2,
+            dx: dx,
+            dy: dy,
+            forecastTime: 0
+        };
+    }
+
     var FACTORIES = {
 
         "wind": {
@@ -231,6 +293,132 @@ var products = function() {
                             [328,     [88, 27, 67]]
                         ])
                     }
+                });
+            }
+        },
+
+        // Dynamic factory for temperature variables (t2m, sst, etc.)
+        "t2m": {
+            matches: function(attr) {
+                return attr.param === "wind" && attr.overlayType === "t2m";
+            },
+            create: function(attr) {
+                return buildProduct({
+                    field: "scalar",
+                    type: "t2m",
+                    description: localize({
+                        name: {en: "t2m", ja: "2m気温"},
+                        qualifier: {en: " @ Surface", ja: " @ 地上"}
+                    }),
+                    paths: ['/proxy/data?vars=t2m&time=' + (attr.metadataTime || '700464') + '&format=json'],
+                    date: gfsDate(attr),
+                    builder: function(file) {
+                        console.log('t2m builder called with file:', file);
+                        
+                        // Handle proxy response format: {data: {t2m: [...], metadata: {...}}
+                        if(file && file.data && file.data.t2m) {
+                            var data = file.data.t2m;
+                            var metadata = file.metadata || {};
+                            
+                            console.log('t2m data loaded, data length:', data ? data.length : 'no data', 'metadata:', metadata);
+                            
+                            // Create Earth-compatible header from metadata
+                            var header = createHeaderFromMetadata(metadata, "t2m", "Temperature");
+                            
+                            return {
+                                header: header,
+                                interpolate: bilinearInterpolateScalar,
+                                data: function(i) {
+                                    return data[i];
+                                }
+                            };
+                        } else {
+                            console.error('t2m builder: Invalid file format:', file);
+                            return null;
+                        }
+                    },
+                    units: [
+                        {label: "°C", conversion: function(x) { return x - 273.15; },       precision: 1},
+                        {label: "°F", conversion: function(x) { return x * 9/5 - 459.67; }, precision: 1},
+                        {label: "K",  conversion: function(x) { return x; },                precision: 1}
+                    ],
+                    scale: {
+                        bounds: [193, 328],
+                        gradient: µ.segmentedColorScale([
+                            [193,     [37, 4, 42]],
+                            [206,     [41, 10, 130]],
+                            [219,     [81, 40, 40]],
+                            [233.15,  [192, 37, 149]],  // -40 C/F
+                            [255.372, [70, 215, 215]],  // 0 F
+                            [273.15,  [21, 84, 187]],   // 0 C
+                            [275.15,  [24, 132, 14]],   // just above 0 C
+                            [291,     [247, 251, 59]],
+                            [298,     [235, 167, 21]],
+                            [311,     [230, 71, 39]],
+                            [328,     [88, 27, 67]]
+                        ])
+                    }
+                });
+            }
+        },
+
+        // Generic scalar overlay factory for metadata variables (d2m, sd, sp, sst, tisr)
+        "scalar_overlay": {
+            matches: function(attr) {
+                // Match any metadata-driven scalar overlay that's not wind or explicit types
+                if (attr.param !== "wind") return false;
+                var overlayType = attr.overlayType;
+                
+                // Skip if it's a known fixed type
+                if (overlayType === "off" || overlayType === "default" || 
+                    overlayType === "temperature" || overlayType === "relative_humidity" ||
+                    overlayType === "wind_power_density" || overlayType === "air_density") {
+                    return false;
+                }
+                
+                // Match metadata variables (d2m, sd, sp, sst, tisr, etc.)
+                return overlayType && typeof overlayType === 'string' && overlayType.length > 0;
+            },
+            create: function(attr) {
+                var overlayType = attr.overlayType;
+                console.log('Creating scalar overlay product for variable:', overlayType);
+                
+                return buildProduct({
+                    field: "scalar",
+                    type: overlayType,
+                    description: localize({
+                        name: {en: overlayType, ja: overlayType},
+                        qualifier: {en: " @ Surface", ja: " @ 地上"}
+                    }),
+                    paths: ['/proxy/data?vars=' + overlayType + '&time=' + (attr.metadataTime || '700464') + '&format=json'],
+                    date: gfsDate(attr),
+                    builder: function(file) {
+                        console.log('Scalar overlay builder called for', overlayType, 'with file:', file);
+                        
+                        // Handle proxy response format: {data: {variable: [...], metadata: {...}}
+                        if(file && file.data && file.data[overlayType]) {
+                            var data = file.data[overlayType];
+                            var metadata = file.metadata || {};
+                            
+                            console.log(overlayType, 'data loaded, data length:', data ? data.length : 'no data', 'metadata:', metadata);
+                            
+                            // Create Earth-compatible header from metadata
+                            var header = createHeaderFromMetadata(metadata, overlayType, getVariableCategory(overlayType));
+                            
+                            return {
+                                header: header,
+                                interpolate: bilinearInterpolateScalar,
+                                data: function(i) {
+                                    return data[i];
+                                }
+                            };
+                        } else {
+                            console.error('Scalar overlay builder: Invalid file format for', overlayType, ':', file);
+                            return null;
+                        }
+                    },
+                    units: getVariableUnits(overlayType),
+                    scale: getVariableScale(overlayType)
                 });
             }
         },
@@ -716,6 +904,124 @@ var products = function() {
                 }
             }
         };
+    }
+
+    /**
+     * Helper function to determine variable category for proper visualization
+     */
+    function getVariableCategory(variable) {
+        var varName = variable.toLowerCase();
+        if (/temp|t2m|sst/.test(varName)) return "Temperature";
+        if (/pressure|sp|msl|slp/.test(varName)) return "Pressure";
+        if (/humidity|dewpoint|d2m|rh/.test(varName)) return "Humidity";
+        if (/precipitation|rain|snow|tp|sd/.test(varName)) return "Precipitation";
+        if (/radiation|solar|tisr/.test(varName)) return "Radiation";
+        if (/wind|u10|v10|gust/.test(varName)) return "Wind";
+        return "General";
+    }
+
+    /**
+     * Get appropriate units for variable based on category
+     */
+    function getVariableUnits(variable) {
+        var category = getVariableCategory(variable);
+        switch (category) {
+            case 'Temperature':
+                return [
+                    {label: "°C", conversion: function(x) { return x - 273.15; }, precision: 1},
+                    {label: "°F", conversion: function(x) { return x * 9/5 - 459.67; }, precision: 1},
+                    {label: "K", conversion: function(x) { return x; }, precision: 1}
+                ];
+            case 'Pressure':
+                return [
+                    {label: "hPa", conversion: function(x) { return x / 100; }, precision: 0},
+                    {label: "Pa", conversion: function(x) { return x; }, precision: 0}
+                ];
+            case 'Humidity':
+                return [
+                    {label: "K", conversion: function(x) { return x; }, precision: 1}
+                ];
+            case 'Precipitation':
+                return [
+                    {label: "m", conversion: function(x) { return x; }, precision: 3},
+                    {label: "mm", conversion: function(x) { return x * 1000; }, precision: 1}
+                ];
+            case 'Radiation':
+                return [
+                    {label: "J/m²", conversion: function(x) { return x; }, precision: 0},
+                    {label: "kJ/m²", conversion: function(x) { return x / 1000; }, precision: 1}
+                ];
+            default:
+                return [
+                    {label: "units", conversion: function(x) { return x; }, precision: 2}
+                ];
+        }
+    }
+
+    /**
+     * Get appropriate color scale for variable based on category
+     */
+    function getVariableScale(variable) {
+        var category = getVariableCategory(variable);
+        switch (category) {
+            case 'Temperature':
+                return {
+                    bounds: [193, 328],
+                    gradient: µ.segmentedColorScale([
+                        [193, [37, 4, 42]],
+                        [233.15, [192, 37, 149]],
+                        [255.372, [70, 215, 215]],
+                        [273.15, [21, 84, 187]],
+                        [298, [235, 167, 21]],
+                        [328, [88, 27, 67]]
+                    ])
+                };
+            case 'Pressure':
+                return {
+                    bounds: [90000, 105000],
+                    gradient: µ.segmentedColorScale([
+                        [90000, [40, 0, 0]],
+                        [95000, [187, 60, 31]],
+                        [98000, [16, 1, 43]],
+                        [101300, [241, 254, 18]],
+                        [105000, [255, 255, 255]]
+                    ])
+                };
+            case 'Humidity':
+                return {
+                    bounds: [200, 300],
+                    gradient: function(v, a) {
+                        return µ.sinebowColor(Math.min(Math.max(v - 200, 0), 100) / 100, a);
+                    }
+                };
+            case 'Precipitation':
+                return {
+                    bounds: [0, 0.01],
+                    gradient: µ.segmentedColorScale([
+                        [0, [135, 206, 235]],
+                        [0.002, [70, 130, 180]],
+                        [0.005, [25, 25, 112]],
+                        [0.01, [0, 0, 139]]
+                    ])
+                };
+            case 'Radiation':
+                return {
+                    bounds: [0, 5000000],
+                    gradient: µ.segmentedColorScale([
+                        [0, [25, 25, 112]],
+                        [1000000, [255, 215, 0]],
+                        [3000000, [255, 140, 0]],
+                        [5000000, [255, 69, 0]]
+                    ])
+                };
+            default:
+                return {
+                    bounds: [0, 1],
+                    gradient: function(v, a) {
+                        return µ.sinebowColor(Math.min(Math.abs(v), 1), a);
+                    }
+                };
+        }
     }
 
     function productsFor(attributes) {

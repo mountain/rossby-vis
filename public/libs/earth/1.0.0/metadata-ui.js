@@ -872,7 +872,7 @@ var MetadataUI = (function() {
                     console.log('UIGenerator: Registered variable overlay type:', overlayType);
                 }
                 
-                // Create product factory for this variable
+                // Create product factory for this variable using the correct products.js pattern
                 this.createVariableProductFactory(variable);
                 
             } catch (error) {
@@ -881,25 +881,43 @@ var MetadataUI = (function() {
         },
         
         /**
-         * Create product factory for specific variable
+         * Create product factory for specific variable using Earth.js patterns
          */
         createVariableProductFactory: function(variable) {
-            if (typeof products === 'undefined' || !products || !products.productsFor || !products.productsFor.FACTORIES) {
+            if (typeof products === 'undefined' || !products) {
                 console.warn('UIGenerator: Products system not available');
                 return;
             }
             
             var overlayType = variable.name;
             
-            // Create factory for this specific variable
-            products.productsFor.FACTORIES[overlayType] = {
+            // Create factory using the same pattern as products.js
+            var factory = {
                 matches: function(attr) {
                     return attr.param === "wind" && attr.overlayType === overlayType;
                 },
                 create: function(attr) {
+                    console.log('UIGenerator: Factory creating product for variable:', overlayType, 'with attr:', attr);
                     return UIGenerator.createVariableProduct(variable, attr);
                 }
             };
+            
+            // Register with the products system - try multiple registration points
+            if (products.productsFor && products.productsFor.FACTORIES) {
+                products.productsFor.FACTORIES[overlayType] = factory;
+                console.log('UIGenerator: Registered factory in productsFor.FACTORIES for:', overlayType);
+            }
+            
+            if (products.all) {
+                products.all[overlayType] = factory;
+                console.log('UIGenerator: Registered factory in products.all for:', overlayType);
+            }
+            
+            // Also try to register directly on products object
+            if (!products[overlayType]) {
+                products[overlayType] = factory;
+                console.log('UIGenerator: Registered factory directly on products for:', overlayType);
+            }
             
             console.log('UIGenerator: Created product factory for variable:', overlayType);
         },
@@ -908,7 +926,38 @@ var MetadataUI = (function() {
          * Create Earth.js product for specific variable
          */
         createVariableProduct: function(variable, attr) {
-            var product = {
+            // Use the Earth.js buildProduct pattern similar to products.js
+            function buildProduct(overrides) {
+                return Object.assign({
+                    description: "",
+                    paths: [],
+                    date: null,
+                    navigate: function(step) {
+                        return this.date; // Simple navigation for now
+                    },
+                    load: function(cancel) {
+                        var me = this;
+                        if (typeof when !== 'undefined' && when.map && typeof µ !== 'undefined' && µ.loadJson) {
+                            return when.map(this.paths, µ.loadJson).then(function(files) {
+                                if (cancel && cancel.requested) return null;
+                                
+                                // Process the loaded files through the builder
+                                var result = me.builder.apply(me, files);
+                                if (result && typeof buildGrid === 'function') {
+                                    return Object.assign(me, buildGrid(result));
+                                } else {
+                                    return Object.assign(me, result);
+                                }
+                            });
+                        } else {
+                            return Promise.resolve(null);
+                        }
+                    }
+                }, overrides);
+            }
+            
+            // Create the product using Earth.js patterns
+            return buildProduct({
                 field: "scalar",
                 type: variable.name,
                 description: function(langCode) {
@@ -917,43 +966,25 @@ var MetadataUI = (function() {
                         qualifier: " @ Surface"
                     };
                 },
-                interpolate: window.bilinearInterpolateScalar || function() { return null; },
                 paths: ['/data/weather/current/current-' + variable.name + '-surface-level-gfs-1.0.json'],
                 date: new Date(),
                 builder: function(file) {
                     console.log('Variable builder called for', variable.name, 'with file:', file);
                     
-                    if(file instanceof Array && file.length > 0) {
+                    // The server returns Earth-compatible format (array of EarthDataPoint objects)
+                    if (file instanceof Array && file.length > 0) {
                         var record = file[0];
                         var data = record.data;
                         
                         console.log('Variable data loaded for', variable.name, ', header:', record.header, 'data length:', data ? data.length : 'no data');
                         
-                        // Create proper grid object with all required Earth.js methods
-                        var grid = {
+                        return {
                             header: record.header,
                             interpolate: window.bilinearInterpolateScalar || function() { return null; },
                             data: function(i) {
                                 return data[i];
-                            },
-                            // Add required description method for Earth.js - must return an object with name and qualifier
-                            description: function(langCode) {
-                                return {
-                                    name: variable.display || variable.name,
-                                    qualifier: " @ Surface"
-                                };
-                            },
-                            // Add scale method if it doesn't exist
-                            scale: UIGenerator.getVariableScale(variable),
-                            // Add units method
-                            units: UIGenerator.getVariableUnits(variable),
-                            // Add type for grid identification
-                            type: variable.name,
-                            // Add source information
-                            source: "Rossby Server"
+                            }
                         };
-                        
-                        return grid;
                     } else {
                         console.error('Variable builder: Invalid file format for', variable.name, ':', file);
                         return null;
@@ -961,47 +992,7 @@ var MetadataUI = (function() {
                 },
                 units: UIGenerator.getVariableUnits(variable),
                 scale: UIGenerator.getVariableScale(variable)
-            };
-            
-            // Add the required load method that Earth.js expects
-            product.load = function(cancel) {
-                var me = this;
-                console.log('Loading data for variable:', variable.name, 'from paths:', this.paths);
-                
-                // Use the global when library for loading JSON files
-                if (typeof when !== 'undefined' && when.map && typeof µ !== 'undefined' && µ.loadJson) {
-                    return when.map(this.paths, µ.loadJson).then(function(files) {
-                        if (cancel && cancel.requested) {
-                            console.log('Load cancelled for variable:', variable.name);
-                            return null;
-                        }
-                        
-                        console.log('Files loaded for variable:', variable.name, ', processing...');
-                        var grid = me.builder.apply(me, files);
-                        
-                        if (grid && typeof buildGrid === 'function') {
-                            return Object.assign(me, buildGrid(grid));
-                        } else {
-                            // Fallback: return the grid directly
-                            return Object.assign(me, grid);
-                        }
-                    }).catch(function(error) {
-                        console.error('Failed to load data for variable:', variable.name, ':', error);
-                        return null;
-                    });
-                } else {
-                    console.warn('Required libraries not available for loading:', variable.name);
-                    return Promise.resolve(null);
-                }
-            };
-            
-            // Add navigation method
-            product.navigate = function(step) {
-                // Simple navigation - for now just return current date
-                return this.date;
-            };
-            
-            return product;
+            });
         },
         
         /**
