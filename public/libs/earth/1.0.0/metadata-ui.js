@@ -122,7 +122,143 @@ var MetadataUI = (function() {
                            mode === 'ocean' ? 'Ocean' : 'Data';
         d3.select('#data-layer').text(dataLayerText);
         
+        // Update dynamic icon rendering based on metadata
+        updateModeIconStates(mode, modeInfo);
+        
         console.log('MetadataUI: Mode set to:', mode);
+    }
+    
+    function updateModeIconStates(activeMode, modeInfo) {
+        console.log('MetadataUI: Updating mode icon states for active mode:', activeMode);
+        
+        // Determine available modes based on metadata
+        var availableModes = determinAvailableModes(modeInfo);
+        
+        // Update each mode icon and hide/show corresponding table rows
+        var modes = ['wind', 'ocean', 'normal'];
+        modes.forEach(function(mode) {
+            var buttonId = '#' + mode + '-mode-enable';
+            var button = d3.select(buttonId);
+            var img = button.select('img');
+            
+            var isActive = mode === activeMode;
+            var isAvailable = availableModes.indexOf(mode) !== -1;
+            
+            // Hide/show the entire table row based on availability
+            var tableRow = d3.select('tr.' + mode + '-mode');
+            if (!tableRow.empty()) {
+                tableRow.classed('invisible', !isAvailable);
+                console.log('MetadataUI: ' + (isAvailable ? 'Showing' : 'Hiding') + ' table row for', mode, 'mode');
+            }
+            
+            if (!img.empty()) {
+                // Update SVG stroke color and opacity based on state
+                updateSVGIconState(img.node(), isActive, isAvailable, mode);
+                
+                // Update button interactivity
+                button.classed('disabled', !isAvailable)
+                      .style('opacity', isAvailable ? '1' : '0.5')
+                      .style('cursor', isAvailable ? 'pointer' : 'not-allowed');
+                      
+                console.log('MetadataUI: Updated', mode, 'mode icon - active:', isActive, 'available:', isAvailable);
+            }
+        });
+    }
+    
+    function determinAvailableModes(modeInfo) {
+        var availableModes = [];
+        
+        // Normal mode is always available
+        availableModes.push('normal');
+        
+        // Wind mode is available if wind pairs were detected
+        if (modeInfo.mode === 'wind' || (modeInfo.allWindPairs && modeInfo.allWindPairs.length > 0)) {
+            availableModes.push('wind');
+        }
+        
+        // Ocean mode is available if ocean pairs were detected  
+        if (modeInfo.mode === 'ocean' || (modeInfo.allOceanPairs && modeInfo.allOceanPairs.length > 0)) {
+            availableModes.push('ocean');
+        }
+        
+        // If we have wind pairs available but current mode is different, still mark wind as available
+        if (window.lastMetadata) {
+            var variables = Object.keys(window.lastMetadata.variables || {});
+            var windPairs = detectWindPairs(variables);
+            var oceanPairs = detectOceanPairs(variables);
+            
+            if (windPairs.length > 0 && availableModes.indexOf('wind') === -1) {
+                availableModes.push('wind');
+            }
+            if (oceanPairs.length > 0 && availableModes.indexOf('ocean') === -1) {
+                availableModes.push('ocean');
+            }
+        }
+        
+        console.log('MetadataUI: Available modes determined:', availableModes);
+        return availableModes;
+    }
+    
+    function updateSVGIconState(imgElement, isActive, isAvailable, mode) {
+        if (!imgElement || !imgElement.src) return;
+        
+        // Load and modify SVG content
+        fetch(imgElement.src)
+            .then(function(response) {
+                return response.text();
+            })
+            .then(function(svgText) {
+                // Parse SVG and update stroke color
+                var parser = new DOMParser();
+                var svgDoc = parser.parseFromString(svgText, 'image/svg+xml');
+                var svgElement = svgDoc.documentElement;
+                
+                // Determine stroke color based on state
+                var strokeColor;
+                var opacity = '1';
+                
+                if (isActive) {
+                    // Active mode: bright white stroke
+                    strokeColor = 'white';
+                    opacity = '1';
+                } else if (isAvailable) {
+                    // Available but inactive: gray stroke
+                    strokeColor = '#888888';
+                    opacity = '0.8';
+                } else {
+                    // Disabled/unavailable: dark gray stroke with reduced opacity
+                    strokeColor = '#555555';
+                    opacity = '0.4';
+                }
+                
+                // Update all path elements with stroke
+                var paths = svgElement.querySelectorAll('path[stroke]');
+                paths.forEach(function(path) {
+                    if (path.getAttribute('stroke') !== 'none') {
+                        path.setAttribute('stroke', strokeColor);
+                    }
+                });
+                
+                // Also update the root SVG stroke if it exists
+                if (svgElement.getAttribute('stroke') && svgElement.getAttribute('stroke') !== 'none') {
+                    svgElement.setAttribute('stroke', strokeColor);
+                }
+                
+                // Set opacity on the entire SVG
+                svgElement.setAttribute('opacity', opacity);
+                
+                // Convert back to data URL and update img src
+                var serializer = new XMLSerializer();
+                var modifiedSvgText = serializer.serializeToString(svgElement);
+                var dataUrl = 'data:image/svg+xml;base64,' + btoa(modifiedSvgText);
+                
+                imgElement.src = dataUrl;
+                
+                console.log('MetadataUI: Updated SVG icon for', mode, 'mode - stroke:', strokeColor, 'opacity:', opacity);
+            })
+            .catch(function(error) {
+                console.warn('MetadataUI: Failed to update SVG icon for', mode, 'mode:', error);
+            });
     }
 
     function setupMetadataTimeNavigation(metadata) {
@@ -399,7 +535,7 @@ var MetadataUI = (function() {
         console.log('MetadataUI: Triggering data download for variable:', varName);
         
         // Update status display
-        d3.select('#status').text('Loading ' + varName + ' data...');
+        updateStatus('Loading ' + varName + ' data...');
         
         // Update data layer display
         var currentMode = d3.select('#data-layer').text();
@@ -417,6 +553,11 @@ var MetadataUI = (function() {
                 console.log('MetadataUI: Overlay agent processing', varName);
             });
         }
+        
+        // Set timeout to clear status if no completion is detected
+        setTimeout(function() {
+            clearStatusIfStale('Loading ' + varName + ' data...');
+        }, 5000);
     }
 
     function registerVariableOverlay(varName, mode) {
@@ -425,8 +566,12 @@ var MetadataUI = (function() {
             // Create a dynamic product factory for this variable that uses metadata time AND level
             products.productsFor.FACTORIES[varName] = {
                 matches: function(attr) {
+                    // Don't match if param is 'disabled' (normal mode only)
+                    if (attr.param === 'disabled') {
+                        return false;
+                    }
                     return attr.overlayType === varName && 
-                           attr.param === mode;  // Use the actual detected mode
+                           (attr.param === mode || attr.param === 'disabled');  // Accept the detected mode or disabled
                 },
                 create: function(attr) {
                     console.log('Creating scalar overlay product for variable:', varName, 'with attributes:', attr);
@@ -764,6 +909,9 @@ var MetadataUI = (function() {
                 
                 this.updateDataSourceDisplay(metadata);
                 
+                // Setup status management
+                setupStatusClearingHandlers();
+                
                 console.log('MetadataUI: Enhanced metadata UI initialization complete');
                 
                 return {
@@ -866,18 +1014,28 @@ var MetadataUI = (function() {
                             // Set proper initial configuration based on detected mode
                             if (dependencies.configuration && result.mode) {
                                 var paramValue;
+                                var overlayType = 'off';
+                                
                                 if (result.mode.mode === 'ocean') {
                                     paramValue = 'ocean';
                                 } else if (result.mode.mode === 'wind') {
                                     paramValue = 'wind';
                                 } else {
-                                    paramValue = 'normal'; // Use 'normal' for normal mode, not 'wind'
+                                    // Normal mode - no vector data available, use normal param to prevent wind rendering
+                                    paramValue = 'normal'; // Use normal param instead of disabled
+                                    console.log('MetadataUI: Normal mode only - using normal param to prevent wind rendering');
+                                    
+                                    // If we have scalar variables, select the first one as overlay
+                                    if (result.variables && result.variables.atmospheric && result.variables.atmospheric.length > 0) {
+                                        overlayType = result.variables.atmospheric[0];
+                                        console.log('MetadataUI: Auto-selecting first scalar variable as overlay:', overlayType);
+                                    }
                                 }
                                 
                                 var initialConfig = {
                                     param: paramValue,
                                     date: 'metadata', // Use metadata time
-                                    overlayType: 'off', // Start with no overlay
+                                    overlayType: overlayType,
                                     metadataTime: window.metadataTimeInfo ? window.metadataTimeInfo.current : null
                                 };
                                 
@@ -899,6 +1057,74 @@ var MetadataUI = (function() {
                     });
             }
         };
+    }
+
+    // Status management functions
+    function updateStatus(message) {
+        var statusElement = d3.select('#status');
+        if (!statusElement.empty()) {
+            statusElement.text(message);
+            console.log('MetadataUI: Status updated:', message);
+        }
+        
+        // Store the current status message and timestamp
+        window.currentStatusMessage = message;
+        window.statusTimestamp = Date.now();
+    }
+    
+    function clearStatusIfStale(expectedMessage) {
+        var statusElement = d3.select('#status');
+        if (!statusElement.empty()) {
+            var currentText = statusElement.text();
+            
+            // Only clear if the status hasn't been updated by something else
+            if (currentText === expectedMessage || currentText === window.currentStatusMessage) {
+                // Check if enough time has passed and no new activity
+                var timeSinceUpdate = Date.now() - (window.statusTimestamp || 0);
+                if (timeSinceUpdate > 3000) { // 3 seconds grace period
+                    statusElement.text('Ready');
+                    console.log('MetadataUI: Cleared stale status:', expectedMessage);
+                }
+            }
+        }
+    }
+    
+    function clearStatus() {
+        var statusElement = d3.select('#status');
+        if (!statusElement.empty()) {
+            statusElement.text('Ready');
+            console.log('MetadataUI: Status cleared');
+        }
+        window.currentStatusMessage = null;
+        window.statusTimestamp = null;
+    }
+    
+    // Listen for data completion events to clear status
+    function setupStatusClearingHandlers() {
+        // Listen for gridAgent completion
+        if (typeof gridAgent !== 'undefined' && gridAgent.on) {
+            gridAgent.on('update', function(grids) {
+                if (grids && grids.primaryGrid) {
+                    setTimeout(function() {
+                        clearStatus();
+                    }, 1000); // Brief delay to show completion
+                }
+            });
+        }
+        
+        // Listen for configuration changes that indicate completion
+        if (typeof configuration !== 'undefined' && configuration.on) {
+            configuration.on('change', function() {
+                // Clear status when configuration settles (no rapid changes)
+                setTimeout(function() {
+                    if (Date.now() - (window.statusTimestamp || 0) > 2000) {
+                        clearStatus();
+                    }
+                }, 3000);
+            });
+        }
+        
+        console.log('MetadataUI: Status clearing handlers setup');
     }
 
     // Export the main factory function

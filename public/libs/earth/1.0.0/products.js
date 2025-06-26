@@ -29,13 +29,12 @@ var products = function() {
                 var me = this;
                 return when.map(this.paths, µ.loadJson).then(function(files) {
                     if(cancel.requested) return null;
-                    
+
                     // Handle both vector and scalar fields
                     if(me.field === "vector" && files instanceof Array) {
                         return _.extend(me, buildGrid(me.builder.apply(me, files)));
                     } else if(me.field === "scalar") {
-                        // For scalar fields, files[0] is the loaded JSON from proxy
-                        return _.extend(me, buildGrid(me.builder.apply(me, files)));
+                        return _.extend(me, buildGrid(me.builder.call(me, files[0])));
                     } else {
                         return null;
                     }
