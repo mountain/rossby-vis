@@ -588,27 +588,24 @@ pub async fn earth_dynamic_data(
                 .map_err(|e| AppError::ProxyError(format!("Failed to parse vector data: {}", e)))?;
 
             // Create grid parameters
-            let grid = GridParams { nx, ny, lo1, la1, lo2, la2, dx, dy };
+            let grid = GridParams {
+                nx,
+                ny,
+                lo1,
+                la1,
+                lo2,
+                la2,
+                dx,
+                dy,
+            };
 
             // Create U component data point
             let u_data = extract_variable_data(&rossby_data, u_component);
-            let u_header = create_earth_header(
-                var_info,
-                "U-component",
-                2,
-                &grid,
-                &ref_time,
-            );
+            let u_header = create_earth_header(var_info, "U-component", 2, &grid, &ref_time);
 
             // Create V component data point
             let v_data = extract_variable_data(&rossby_data, v_component);
-            let v_header = create_earth_header(
-                var_info,
-                "V-component",
-                3,
-                &grid,
-                &ref_time,
-            );
+            let v_header = create_earth_header(var_info, "V-component", 3, &grid, &ref_time);
 
             let earth_data = vec![
                 EarthDataPoint {
@@ -660,16 +657,19 @@ pub async fn earth_dynamic_data(
                 .map_err(|e| AppError::ProxyError(format!("Failed to parse scalar data: {}", e)))?;
 
             // Create grid parameters
-            let grid = GridParams { nx, ny, lo1, la1, lo2, la2, dx, dy };
+            let grid = GridParams {
+                nx,
+                ny,
+                lo1,
+                la1,
+                lo2,
+                la2,
+                dx,
+                dy,
+            };
 
             let var_data = extract_variable_data(&rossby_data, &variable);
-            let header = create_earth_header(
-                var_info,
-                &var_info.long_name,
-                0,
-                &grid,
-                &ref_time,
-            );
+            let header = create_earth_header(var_info, &var_info.long_name, 0, &grid, &ref_time);
 
             let earth_data = vec![EarthDataPoint {
                 header,

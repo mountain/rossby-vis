@@ -103,20 +103,20 @@ async fn test_metadata_service_initialization() {
         "Should contain MetadataService"
     );
     assert!(
-        js_content.contains("VariableMapper"),
-        "Should contain VariableMapper"
+        js_content.contains("categorizeVariables"),
+        "Should contain categorizeVariables function"
     );
     assert!(
-        js_content.contains("UIGenerator"),
-        "Should contain UIGenerator"
+        js_content.contains("detectMode"),
+        "Should contain detectMode function"
     );
     assert!(
         js_content.contains("generateHeightControls"),
         "Should contain generateHeightControls function"
     );
     assert!(
-        js_content.contains("generateOverlayControls"),
-        "Should contain generateOverlayControls function"
+        js_content.contains("generateModeSpecificOverlays"),
+        "Should contain generateModeSpecificOverlays function"
     );
 
     println!("✓ metadata-ui.js contains all required components");
