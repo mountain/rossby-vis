@@ -139,7 +139,7 @@ function setupModeUI(mode, modeInfo) {
 **UI Elements**:
 - `#nav-start`: Shows the beginning time
 - `#nav-end`: Shows the last time  
-- `#data-date`: Shows the time of current data
+- `#data-time`: Shows the time of current data
 
 **Format**: Pure number directly from NC time coordinate (no date parsing/formatting)
 
@@ -183,7 +183,7 @@ function updateTimeDisplayElements() {
         .text(timeInfo.end.toString())
         .attr('title', `End: ${timeInfo.end}`);
     
-    d3.select('#data-date')
+    d3.select('#data-time')
         .text(timeInfo.current.toString())
         .attr('title', `Current: ${timeInfo.current} (${timeInfo.currentIndex + 1}/${timeInfo.count})`);
 }

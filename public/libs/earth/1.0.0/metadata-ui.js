@@ -264,6 +264,228 @@ var MetadataUI = (function() {
         updateTimeDisplayElements();
     }
 
+    // Phase 5: Variable Categorization Strategy
+    function categorizeVariables(variables, mode, modeInfo) {
+        var categorized = {
+            atmospheric: [],
+            oceanic: [],
+            surface: [],
+            excluded: [],
+            vectorComponents: []
+        };
+        
+        // Pattern-based categorization
+        var patterns = {
+            atmospheric: /^(t2m|temp|temperature|d2m|dewpoint|humidity|rh|relative.*humidity|sp|surface.*pressure|msl|mean.*sea.*level|tisr|radiation|solar|tcw|total.*cloud.*water|cloud)$/i,
+            oceanic: /^(sst|sea.*surface.*temp|salinity|sal|ssh|sea.*surface.*height|mld|mixed.*layer.*depth)$/i,
+            surface: /^(sd|snow.*depth|tp|total.*precip|precipitation|rain|sf|surface.*flux|lhf|latent.*heat|shf|sensible.*heat)$/i
+        };
+        
+        Object.keys(variables).forEach(function(varName) {
+            // Skip coordinate variables
+            if (['latitude', 'longitude', 'time', 'level', 'plev', 'height'].indexOf(varName.toLowerCase()) !== -1) {
+                categorized.excluded.push(varName);
+                return;
+            }
+            
+            // Filter out vector components based on mode
+            if (mode === 'wind' && modeInfo.allWindPairs && isWindComponent(varName, modeInfo.allWindPairs)) {
+                categorized.vectorComponents.push(varName);
+                return;
+            }
+            if (mode === 'ocean' && modeInfo.allOceanPairs && isOceanComponent(varName, modeInfo.allOceanPairs)) {
+                categorized.vectorComponents.push(varName);
+                return;
+            }
+            
+            // Categorize remaining variables
+            if (patterns.atmospheric.test(varName)) {
+                categorized.atmospheric.push(varName);
+            } else if (patterns.oceanic.test(varName)) {
+                categorized.oceanic.push(varName);
+            } else if (patterns.surface.test(varName)) {
+                categorized.surface.push(varName);
+            } else {
+                // Default to atmospheric for unknown variables
+                categorized.atmospheric.push(varName);
+            }
+        });
+        
+        return categorized;
+    }
+
+    // Phase 5: Use Variable Names Directly (No Smart Display Name Generation)
+    function createDisplayName(varName, longName) {
+        // Use the actual variable name from NC file directly
+        return varName;
+    }
+
+    // Phase 5: Dynamic Overlay Control Generation
+    function generateModeSpecificOverlays(mode, categorizedVars, metadata) {
+        var container = d3.select('#overlay-variables');
+        if (container.empty()) {
+            // Try to find the overlay container in the existing structure
+            container = d3.selectAll('p').filter(function() {
+                return this.textContent.indexOf('Overlay') !== -1;
+            });
+        }
+        
+        if (container.empty()) {
+            console.warn('MetadataUI: No overlay container found');
+            return;
+        }
+        
+        // Clear existing controls
+        container.selectAll('*').remove();
+        
+        // Add default "None" option
+        addOverlayButton(container, 'overlay-off', 'None', {overlayType: 'off'});
+        
+        var availableVars = [];
+        
+        switch (mode) {
+            case 'normal':
+                // Show all non-coordinate variables directly
+                availableVars = [].concat(
+                    categorizedVars.atmospheric,
+                    categorizedVars.oceanic,
+                    categorizedVars.surface
+                );
+                break;
+                
+            case 'wind':
+                // Show air-related variables (atmospheric + surface), filtered out u/v pairs
+                availableVars = [].concat(
+                    categorizedVars.atmospheric,
+                    categorizedVars.surface
+                );
+                break;
+                
+            case 'ocean':
+                // Show ocean-related variables, filtered out ust/vst pairs
+                availableVars = categorizedVars.oceanic;
+                break;
+        }
+        
+        // Generate overlay buttons for available variables
+        availableVars.forEach(function(varName) {
+            var varInfo = metadata.variables[varName] || {};
+            var displayName = createDisplayName(varName, varInfo.attributes && varInfo.attributes.long_name);
+            
+            addOverlayButton(container, 'overlay-' + varName, displayName, {
+                overlayType: varName,
+                param: mode === 'ocean' ? 'ocean' : 'wind'
+            });
+            
+            // Register variable with products system
+            registerVariableOverlay(varName, mode);
+        });
+        
+        console.log('MetadataUI: Generated', availableVars.length, 'overlay controls for', mode, 'mode:', availableVars);
+    }
+
+    function addOverlayButton(container, id, text, config) {
+        // Add separator
+        if (container.selectAll('.text-button').size() > 0) {
+            container.append('span').text(' – ');
+        }
+        
+        // Add button
+        var button = container.append('span')
+            .attr('class', 'text-button')
+            .attr('id', id)
+            .attr('title', text)
+            .text(text);
+        
+        // Bind to configuration system
+        if (typeof bindButtonToConfiguration === 'function') {
+            try {
+                bindButtonToConfiguration('#' + id, config);
+                console.log('MetadataUI: Successfully bound overlay button:', id);
+            } catch (error) {
+                console.warn('MetadataUI: Error binding overlay button:', error);
+            }
+        }
+        
+        return button;
+    }
+
+    // Phase 5: Variable Selection Data Download System
+    function setupVariableSelectionHandlers() {
+        // Listen for overlay selection changes in configuration
+        if (typeof configuration !== 'undefined' && configuration.on) {
+            configuration.on('change:overlayType', function(model, overlayType) {
+                if (overlayType && overlayType !== 'off' && overlayType !== 'default') {
+                    triggerVariableDataDownload(overlayType);
+                }
+            });
+            
+            // Also listen for mode changes that might affect available variables
+            configuration.on('change:param', function(model, param) {
+                // Regenerate overlays when mode changes
+                if (window.lastMetadata) {
+                    var modeInfo = detectMode(window.lastMetadata);
+                    var categorizedVars = categorizeVariables(window.lastMetadata.variables, param, modeInfo);
+                    generateModeSpecificOverlays(param, categorizedVars, window.lastMetadata);
+                }
+            });
+            
+            console.log('MetadataUI: Variable selection handlers setup complete');
+        }
+    }
+
+    function triggerVariableDataDownload(varName) {
+        console.log('MetadataUI: Triggering data download for variable:', varName);
+        
+        // Update status display
+        d3.select('#status').text('Loading ' + varName + ' data...');
+        
+        // Update data layer display
+        var currentMode = d3.select('#data-layer').text();
+        d3.select('#data-layer').text(currentMode + ' + ' + createDisplayName(varName));
+        
+        // The existing gridAgent system will handle the actual download
+        // when configuration changes trigger a rebuild
+        if (typeof gridAgent !== 'undefined' && gridAgent.submit) {
+            gridAgent.submit(buildGrids);
+        }
+        
+        // Also update overlay agent if available
+        if (typeof overlayAgent !== 'undefined' && overlayAgent.submit) {
+            overlayAgent.submit(function() {
+                console.log('MetadataUI: Overlay agent processing', varName);
+            });
+        }
+    }
+
+    function registerVariableOverlay(varName, mode) {
+        // Register with products system using existing GFS-style data loading (not new Rossby proxy)
+        if (typeof products !== 'undefined' && products && products.productsFor && products.productsFor.FACTORIES) {
+            // Use the existing Earth.js overlay system instead of creating new Rossby endpoints
+            // This maps NC file variables to existing overlay types that Earth.js already knows how to handle
+            
+            var overlayMapping = {
+                't2m': 'temp',
+                'temperature': 'temp', 
+                'd2m': 'relative_humidity',
+                'rh': 'relative_humidity',
+                'sp': 'mean_sea_level_pressure',
+                'msl': 'mean_sea_level_pressure',
+                'sst': 'temp',
+                'u10': 'wind',
+                'v10': 'wind'
+            };
+            
+            var earthOverlayType = overlayMapping[varName] || varName;
+            
+            console.log('MetadataUI: Mapping variable', varName, 'to existing Earth overlay type:', earthOverlayType);
+            
+            // Don't register new product factories - use existing Earth.js system
+            // The existing products system already handles temp, wind, relative_humidity, etc.
+            // We just need to make sure the UI correctly triggers the existing overlays
+        }
+    }
+
     // Main metadata service
     function MetadataService() {
         this.metadata = null;
@@ -302,9 +524,9 @@ var MetadataUI = (function() {
             return [];
         },
 
-        // Phase 4: Master Initialization Flow
+        // Phase 4 & 5: Master Initialization Flow
         initializeEnhancedMetadataUI: function(metadata) {
-            console.log('MetadataUI: Starting enhanced metadata UI initialization...');
+            console.log('MetadataUI: Starting enhanced metadata UI initialization (Phase 4 & 5)...');
             
             try {
                 // Store metadata globally for access by other components
@@ -315,17 +537,22 @@ var MetadataUI = (function() {
                 setupModeUI(modeInfo.mode, modeInfo);
                 setupMetadataTimeNavigation(metadata);
                 
+                // Phase 5: Variable-based overlay system
+                var categorizedVars = categorizeVariables(metadata.variables, modeInfo.mode, modeInfo);
+                generateModeSpecificOverlays(modeInfo.mode, categorizedVars, metadata);
+                setupVariableSelectionHandlers();
+                
                 // Generate UI components
                 this.generateHeightControls(metadata);
-                this.generateOverlayControls(metadata, modeInfo);
                 
                 // Update data source information
                 this.updateDataSourceDisplay(metadata);
                 
-                console.log('MetadataUI: Enhanced metadata UI initialization complete');
+                console.log('MetadataUI: Enhanced metadata UI initialization complete (Phase 4 & 5)');
                 
                 return {
                     mode: modeInfo,
+                    variables: categorizedVars,
                     metadata: metadata
                 };
                 
@@ -395,103 +622,6 @@ var MetadataUI = (function() {
             console.log('MetadataUI: Height controls generated successfully');
         },
 
-        generateOverlayControls: function(metadata, modeInfo) {
-            var variables = metadata.variables || {};
-            var varNames = Object.keys(variables).filter(function(name) {
-                // Filter out coordinate variables
-                return !['longitude', 'latitude', 'time', 'level'].includes(name);
-            });
-            
-            // Filter based on mode - Phase 5 will enhance this
-            if (modeInfo.mode === 'wind') {
-                // Remove wind components from overlay options
-                varNames = varNames.filter(function(name) {
-                    return !isWindComponent(name, modeInfo.allWindPairs || []);
-                });
-            } else if (modeInfo.mode === 'ocean') {
-                // Remove ocean components from overlay options
-                varNames = varNames.filter(function(name) {
-                    return !isOceanComponent(name, modeInfo.allOceanPairs || []);
-                });
-            }
-            
-            console.log('MetadataUI: Generating overlay controls for mode', modeInfo.mode, 'variables:', varNames);
-            
-            var overlayContainers = d3.selectAll('p').filter(function() {
-                return this.textContent.indexOf('Overlay') !== -1;
-            });
-            
-            if (overlayContainers.empty()) return;
-            
-            // Clear existing overlay buttons  
-            overlayContainers.selectAll('.text-button').filter(function() {
-                return this.id && this.id.startsWith('overlay-');
-            }).remove();
-            overlayContainers.selectAll('span').filter(function() {
-                return this.textContent === ' – ';
-            }).remove();
-            
-            var mainContainer = d3.select(overlayContainers.node());
-            
-            // Add None option
-            mainContainer.append('span')
-                .attr('class', 'text-button')
-                .attr('id', 'overlay-off')
-                .text('None');
-            
-            if (typeof bindButtonToConfiguration === 'function') {
-                bindButtonToConfiguration('#overlay-off', {overlayType: 'off'});
-            }
-            
-            // Add variable overlays
-            varNames.forEach(function(varName) {
-                var buttonId = 'overlay-' + varName;
-                
-                mainContainer.append('span').text(' – ');
-                mainContainer.append('span')
-                    .attr('class', 'text-button')
-                    .attr('id', buttonId)
-                    .attr('title', varName)
-                    .text(varName);
-                
-                // Bind to configuration if available
-                if (typeof bindButtonToConfiguration === 'function') {
-                    try {
-                        bindButtonToConfiguration('#' + buttonId, {
-                            overlayType: varName, 
-                            param: modeInfo.mode === 'ocean' ? 'ocean' : 'wind'
-                        });
-                        console.log('MetadataUI: Successfully bound', '#' + buttonId);
-                    } catch (error) {
-                        console.warn('MetadataUI: Error binding overlay button:', error);
-                    }
-                }
-                
-                // Register with products system if available
-                if (typeof products !== 'undefined' && products && products.productsFor && products.productsFor.FACTORIES) {
-                    products.productsFor.FACTORIES[varName] = {
-                        matches: function(attr) {
-                            return attr.param === (modeInfo.mode === 'ocean' ? 'ocean' : 'wind') && attr.overlayType === varName;
-                        },
-                        create: function(attr) {
-                            console.log('MetadataUI: Factory creating product for variable:', varName, 'with attr:', attr);
-                            
-                            // Use the existing scalar_overlay factory which handles metadata variables properly
-                            var scalarFactory = products.productsFor.FACTORIES.scalar_overlay;
-                            if (scalarFactory && scalarFactory.create) {
-                                return scalarFactory.create(attr);
-                            }
-                            
-                            console.error('MetadataUI: scalar_overlay factory not found');
-                            return null;
-                        }
-                    };
-                    console.log('MetadataUI: Registered factory for:', varName);
-                }
-            });
-
-            console.log('MetadataUI: Overlay controls generated successfully');
-        },
 
         updateDataSourceDisplay: function(metadata) {
             var source = 'Rossby Server';
