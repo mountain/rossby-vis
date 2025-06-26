@@ -53,7 +53,7 @@ a:hover, a:focus, .no-touch .text-button:hover, .no-touch .text-button:focus, .t
     -webkit-transition: color 125ms ease-in;
 }
 
-p.invisible, span.invisible, #sponsor.invisible {
+p.invisible, span.invisible, tr.invisible, #sponsor.invisible {
     display: none;
 }
 
@@ -158,12 +158,17 @@ body {
     padding-right: 1rem;
 }
 
-#nav-backward, #nav-backward-more, #nav-forward, #nav-forward-more, #option-show-grid {
+#nav-backward, #nav-backward-more, #nav-forward, #nav-forward-more {
     padding-left: 1rem;
     padding-right: 1rem;
 }
 
-#show-location {
+#modes {
+    padding-left: 0.25rem;
+    padding-right: 0.25rem;
+}
+
+#tools {
     padding-left: 0.25rem;
     padding-right: 0.25rem;
 }
@@ -172,15 +177,6 @@ body {
     font-size: 1.25rem;
     float: right;
     padding-top: 0.5rem;
-}
-
-.social-icon {
-    font-size: 2.25rem;
-    font-family: monosocialiconsfont-sub,sans-serif;
-    padding-left: 0.25rem;
-    text-decoration: none;
-    position: relative;
-    top: 0.1rem;
 }
 
 .internal-link {

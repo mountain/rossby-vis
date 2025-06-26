@@ -98,7 +98,7 @@ var products = function() {
     }
 
     function describeSurface(attr) {
-        return attr.surface === "surface" ? "Surface" : µ.capitalize(attr.level);
+        return attr.surface === "surface" ? "surface" : µ.capitalize(attr.level);
     }
 
     function describeSurfaceJa(attr) {
@@ -198,7 +198,7 @@ var products = function() {
                     field: "vector",
                     type: "wind",
                     description: localize({
-                        name: {en: "Wind", ja: "風速"},
+                        name: {en: "wind", ja: "風速"},
                         qualifier: {en: " @ " + describeSurface(attr), ja: " @ " + describeSurfaceJa(attr)}
                     }),
                     paths: [rossbyVisProxyPath(attr, "wind", attr.surface, attr.level)],
@@ -216,9 +216,9 @@ var products = function() {
                             console.log('Wind data loaded, U data length:', uData ? uData.length : 'no U data', 'V data length:', vData ? vData.length : 'no V data', 'metadata:', metadata);
                             
                             // Create Earth-compatible header from metadata
-                            var header = createHeaderFromMetadata(metadata, "u10", "Wind");
-                            header.parameterCategoryName = "Momentum";
-                            header.parameterNumberName = "Wind";
+                            var header = createHeaderFromMetadata(metadata, "u10", "wind");
+                            header.parameterCategoryName = "momentum";
+                            header.parameterNumberName = "wind";
                             
                             return {
                                 header: header,
@@ -274,7 +274,7 @@ var products = function() {
                         type: "currents",
                         description: localize({
                             name: {en: "Ocean Currents", ja: "海流"},
-                            qualifier: {en: " @ Surface", ja: " @ 地上"}
+                            qualifier: {en: " @ surface", ja: " @ 地上"}
                         }),
                         paths: [oscar0p33Path(catalog, attr)],
                         date: oscarDate(catalog, attr),
@@ -337,7 +337,7 @@ var products = function() {
                     type: overlayType,
                     description: localize({
                         name: {en: overlayType, ja: overlayType},
-                        qualifier: {en: " @ Surface", ja: " @ 地上"}
+                        qualifier: {en: " @ surface", ja: " @ 地上"}
                     }),
                     paths: [path],
                     date: gfsDate(attr),

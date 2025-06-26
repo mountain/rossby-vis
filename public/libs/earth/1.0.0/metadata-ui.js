@@ -439,8 +439,8 @@ var MetadataUI = (function() {
         // Clear existing controls
         container.selectAll('*').remove();
 
-        // Add default "None" option
-        addOverlayButton(container, 'overlay-off', 'None', {overlayType: 'off'});
+        // Add default "none" option
+        addOverlayButton(container, 'overlay-off', 'none', {overlayType: 'off'});
 
         var availableVars = [];
 
@@ -1084,6 +1084,9 @@ var MetadataUI = (function() {
                 if (timeSinceUpdate > 3000) { // 3 seconds grace period
                     statusElement.text('Ready');
                     console.log('MetadataUI: Cleared stale status:', expectedMessage);
+                    setTimeout(function() {
+                        statusElement.text('');
+                    }, 1000);
                 }
             }
         }
@@ -1094,6 +1097,9 @@ var MetadataUI = (function() {
         if (!statusElement.empty()) {
             statusElement.text('Ready');
             console.log('MetadataUI: Status cleared');
+            setTimeout(function() {
+                statusElement.text('');
+            }, 1000);
         }
         window.currentStatusMessage = null;
         window.statusTimestamp = null;
