@@ -242,20 +242,25 @@ var MetadataUI = (function() {
 
         updateDateDisplay: function(timeInfo) {
             var currentTime = timeInfo.current;
-            var displayText = currentTime + ' - ' + timeInfo.end + ' (' + timeInfo.count + ' steps) | Raw NetCDF time coordinates';
-            
+            var startTime = timeInfo.start;
+            var endTime = timeInfo.end
+
             var attempts = 0;
             var maxAttempts = 5;
             
             var tryUpdate = function() {
                 attempts++;
+                var startElement = d3.select('#nav-start');
+                var endElement = d3.select('#nav-end');
                 var dateElement = d3.select('#data-date');
                 var found = !dateElement.empty();
                 
                 console.log('UIGenerator: Attempt', attempts, 'to find date element, found:', found);
                 
                 if (found) {
-                    dateElement.text(displayText);
+                    dateElement.text(currentTime);
+                    startElement.text(startTime);
+                    endElement.text(endTime)
                     console.log('UIGenerator: Successfully updated date display with:', displayText);
                     return true;
                 } else if (attempts < maxAttempts) {

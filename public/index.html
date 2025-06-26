@@ -17,7 +17,6 @@
     <link rel="apple-touch-icon" sizes="120x120" href="/iphone-icon.png"/>
     <link rel="apple-touch-icon" sizes="152x152" href="/ipad-icon.png"/>
     <link rel="stylesheet" type="text/css" href="/styles/styles.css"/>
-
     <link rel="alternate" hreflang="x-default" href="http://earth.nullschool.net/"/>
     <link rel="alternate" hreflang="ja" href="http://earth.nullschool.net/jp/"/>
 </head>
@@ -61,71 +60,78 @@
         </p>
 
         <div id="menu" class="invisible">
-            <p>Date | <span id="data-date"></span></p>
-            <p>Data | <span id="data-layer"></span></p>
-            <p><span id="scale-label">Scale | </span><canvas id="scale"></canvas></p>
-            <p>Source | <span id="data-center"></span></p>
-            <p>Control | <span
-                class="text-button" id="nav-now" title="Current Conditions">Now</span><span
-                class="text-button" id="nav-backward-more"> « </span> – <span
-                class="text-button" id="nav-backward"> ‹ </span> – <span
-                class="text-button" id="nav-forward"> › </span> – <span
-                class="text-button" id="nav-forward-more"> » </span><span
-                class="text-button" id="show-location" title="Current Position">〖◯〗</span><span
-                class="text-button" id="option-show-grid" title="Toggle Grid">Grid</span>
-            </p>
-            <p>Mode | <span
-                class="text-button" id="wind-mode-enable">Air</span> – <span
-                class="text-button" id="ocean-mode-enable">Ocean</span>
-            </p>
-            <p class="wind-mode">Height | <span
-                class="surface text-button" id="surface-level" title="Surface">Sfc</span> – <span
-                class="surface text-button" id="isobaric-1000hPa">1000</span> – <span
-                class="surface text-button" id="isobaric-850hPa">850</span> – <span
-                class="surface text-button" id="isobaric-700hPa">700</span> – <span
-                class="surface text-button" id="isobaric-500hPa">500</span> – <span
-                class="surface text-button" id="isobaric-250hPa">250</span> – <span
-                class="surface text-button" id="isobaric-70hPa">70</span> – <span
-                class="surface text-button" id="isobaric-10hPa">10</span> hPa
-            </p>
-            <p class="wind-mode">Overlay | <span
-                class="text-button" id="overlay-off">None</span> – <span
-                class="text-button" id="overlay-wind" title="Wind Speed">Wind</span> – <span
-                class="text-button" id="overlay-temp" title="Temperature">Temp</span> – <span
-                class="text-button" id="overlay-relative_humidity" title="Relative Humidity">RH</span> – <span
-                class="text-button" id="overlay-air_density" title="Air Density">AD</span> – <span
-                class="text-button" id="overlay-wind_power_density" title="Wind Power Density">WPD</span>
-            </p>
-            <p class="wind-mode"><span style="visibility:hidden">Overlay</span> | <span
-                class="text-button" id="overlay-total_precipitable_water" title="Total Precipitable Water">TPW</span> – <span
-                class="text-button" id="overlay-total_cloud_water" title="Total Cloud Water">TCW</span> – <span
-                class="text-button" id="overlay-mean_sea_level_pressure" title="Mean Sea Level Pressure">MSLP</span>
-            </p>
-            <p class="ocean-mode invisible">Animate | <span
-                class="text-button" id="animate-currents" title="Currents">Currents</span>
-            </p>
-            <p class="ocean-mode invisible">Overlay | <span
-                class="text-button" id="overlay-ocean-off">None</span> – <span
-                class="text-button" id="overlay-currents" title="Currents">Currents</span>
-            </p>
-            <p class="ocean-mode invisible"><span style="visibility:hidden">Overlay</span> |</p>
-            <p>Projection | <span
-                class="proj text-button" id="atlantis" title="Atlantis">A</span> – <span
-                class="proj text-button" id="azimuthal_equidistant" title="Azimuthal Equidistant">AE</span> – <span
-                class="proj text-button" id="conic_equidistant" title="Conic Equidistant">CE</span> – <span
-                class="proj text-button" id="equirectangular" title="Equirectangular">E</span> – <span
-                class="proj text-button" id="orthographic" title="Orthographic">O</span> – <span
-                class="proj text-button" id="stereographic" title="Stereographic">S</span> – <span
-                class="proj text-button" id="waterman" title="Waterman Butterfly">WB</span> – <span
-                class="proj text-button" id="winkel3" title="Winkel Tripel">W3</span>
-            </p>
-            <!--<p>免責事項 | 正確な情報を提供するためのものではありません</p>-->
-            <p id="lang"><a href="/jp" class="internal-link">日本語</a></p>
-            <p>
-                <a href="about.html" class="internal-link">about</a>
-                <a href="https://www.facebook.com/EarthWindMap" class="social-icon" title="Facebook">&#xe027;</a>
-                <a href="https://twitter.com/cambecc" class="social-icon" title="Twitter">&#xe086;</a>
-            </p>
+            <div style="float: right;text-align: right;margin-left: -10em;">
+                <span class="text-button" id="wind-mode-enable" title="Wind mode"><img src="/icons/wind.svg"/></span>
+                <span class="text-button" id="ocean-mode-enable" title="Ocean mode"><img src="/icons/ripple.svg"/></span>
+                <span class="text-button" id="normal-mode-enable" title="Normal mode"><img src="/icons/pentagon-number-1.svg"/></span>
+                <span> </span>
+                <span class="text-button" id="show-location" title="Current Position"><img src="/icons/user-pin.svg"/></span>
+                <span class="text-button" id="option-show-grid" title="Toggle Grid"><img src="/icons/grid-4x4.svg"/></span>
+            </div>
+            <table>
+                <tr>
+                    <td style="text-align: right; margin-right: 3em;">Data</td><td style="text-align: center;"><span id="data-layer"></span></td>
+                </tr>
+                <tr>
+                    <td style="text-align: right; margin-right: 3em;">Source</td><td style="text-align: center;"><span id="data-center"></span></td>
+                </tr>
+                <tr>
+                    <td style="text-align: right; margin-right: 3em;">Control</td><td style="text-align: center;">
+                      <span class="text-button" id="nav-start" title="Start time frame"></span>
+                      <span class="text-button" id="nav-backward-more"><img src="/icons/chevron-left-pipe.svg" /></span>
+                      <span class="text-button" id="nav-backward"><img src="/icons/chevron-left.svg" /></span>
+                      <span id="data-date"></span>
+                      <span class="text-button" id="nav-forward"><img src="/icons/chevron-right.svg" /></span>
+                      <span class="text-button" id="nav-forward-more"><img src="/icons/chevron-right-pipe.svg" /></span>
+                      <span class="text-button" id="nav-end" title="End time frame"></span>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="text-align: right"><span id="scale-label">Scale</span></td><td style="text-align: center;"><canvas id="scale"></canvas></td>
+                </tr>
+                <tr class="invisible">
+                    <td style="text-align: right; margin-right: 3em;">Height</td>
+                    <td  id="height-selection" style="text-align: center;">
+                      <span class="surface text-button" id="surface-level" title="Surface">Sfc</span> –
+                      <span class="surface text-button" id="isobaric-1000hPa">1000</span> –
+                      <span class="surface text-button" id="isobaric-850hPa">850</span> –
+                      <span class="surface text-button" id="isobaric-700hPa">700</span> –
+                      <span class="surface text-button" id="isobaric-500hPa">500</span> –
+                      <span class="surface text-button" id="isobaric-250hPa">250</span> –
+                      <span class="surface text-button" id="isobaric-70hPa">70</span> –
+                      <span class="surface text-button" id="isobaric-10hPa">10</span> hPa
+                    </td>
+                </tr>
+                <tr class="wind-mode">
+                    <td style="text-align: right; margin-right: 3em;">Overlay</td>
+                    <td id="overlay-variables" style="text-align: center;">
+                      <span class="text-button" id="overlay-off">None</span>
+                    </td>
+                </tr>
+                <tr class="ocean-mode invisible">
+                    <td style="text-align: right; margin-right: 3em;">Animate</td><td style="text-align: center;">
+                        <span class="text-button" id="animate-currents" title="Currents">Currents</span>
+                    </td>
+                </tr>
+                <tr class="ocean-mode invisible">
+                    <td style="text-align: right; margin-right: 3em;">Overlay</td><td style="text-align: center;"></td>
+                </tr>
+                <tr>
+                    <td style="text-align: right; margin-right: 3em;">Projection</td><td style="text-align: center;">
+                      <span class="proj text-button" id="atlantis" title="Atlantis">A</span> –
+                      <span class="proj text-button" id="azimuthal_equidistant" title="Azimuthal Equidistant">AE</span> –
+                      <span class="proj text-button" id="conic_equidistant" title="Conic Equidistant">CE</span> –
+                      <span class="proj text-button" id="equirectangular" title="Equirectangular">E</span> –
+                      <span class="proj text-button" id="orthographic" title="Orthographic">O</span> –
+                      <span class="proj text-button" id="stereographic" title="Stereographic">S</span> –
+                      <span class="proj text-button" id="waterman" title="Waterman Butterfly">WB</span> –
+                      <span class="proj text-button" id="winkel3" title="Winkel Tripel">W3</span>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="text-align: right; margin-right: 3em;">Language</td><td id="lang" style="text-align: center;"><a href="/jp" class="internal-link">日本語</a></td>
+                </tr>
+            </table>
         </div>
     </div>
 
