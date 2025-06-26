@@ -722,6 +722,52 @@ var µ = function() {
         }
     });
 
+    const categoryRules = new Map([
+        // Rules for variables like 'z', 'z50', 'z500' (Geopotential Height)
+        // The ^ anchor matches the start of the string, and $ matches the end.
+        // \d* matches zero or more digits.
+        ["Geopotential Height", /^z\d*$/],
+
+        // Rules for 't', 't850' (Temperature) and common descriptive names
+        ["Temperature", /(^t\d*$)|temp|t2m|sst/],
+
+        // Rules for 'q', 'q500' (Humidity) and common descriptive names
+        ["Humidity", /(^q\d*$)|humidity|dewpoint|d2m|rh/],
+
+        // Rules for 'u', 'v', 'u10', 'v500' (Wind) and common descriptive names
+        // The [uv] character set matches either 'u' or 'v'.
+        // The previous 'u10'/'v10' are now covered by the more general /^[uv]\d*$/ pattern.
+        ["Wind", /(^[uv]\d*$)|wind|gust/],
+
+        // Original rules for other categories
+        ["Pressure", /pressure|sp|msl|slp/],
+        ["Precipitation", /precipitation|rain|snow|tp|sd/],
+        ["Radiation", /radiation|solar|tisr/],
+    ]);
+
+    /**
+     * Gets the category for a given variable name based on a set of rules.
+     * @param {string} variable - The variable name to categorize (e.g., "t850", "surface_pressure").
+     * @returns {string} The determined category name or "General" if no match is found.
+     */
+    function getVariableQuantity(variable) {
+        // Convert to lowercase to ensure case-insensitive matching.
+        const varName = variable.toLowerCase();
+
+        // Iterate through the rules Map.
+        for (const [category, regex] of categoryRules.entries()) {
+            // Test the variable name against the regular expression.
+            if (regex.test(varName)) {
+                // If a match is found, return the corresponding category immediately.
+                return category;
+            }
+        }
+
+        // If the loop completes without finding any matches, return the default category.
+        return "General";
+    }
+
+
     /**
      * A Backbone.js Model to hold the page's configuration as a set of attributes: date, layer, projection,
      * orientation, etc. Changes to the configuration fire events which the page's components react to. For
@@ -763,6 +809,7 @@ var µ = function() {
         view: view,
         removeChildren: removeChildren,
         clearCanvas: clearCanvas,
+        getVariableQuantity: getVariableQuantity,
         sinebowColor: sinebowColor,
         extendedSinebowColor: extendedSinebowColor,
         windIntensityColorScale: windIntensityColorScale,

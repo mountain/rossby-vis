@@ -60,7 +60,7 @@
         </p>
 
         <div id="menu" class="invisible">
-            <div style="float: right;text-align: right;margin-left: -10em;">
+            <div style="text-align: right;">
                 <span class="text-button" id="wind-mode-enable" title="Wind mode"><img src="/icons/wind.svg"/></span>
                 <span class="text-button" id="ocean-mode-enable" title="Ocean mode"><img src="/icons/ripple.svg"/></span>
                 <span class="text-button" id="normal-mode-enable" title="Normal mode"><img src="/icons/pentagon-number-1.svg"/></span>
@@ -77,35 +77,26 @@
                 </tr>
                 <tr>
                     <td style="text-align: right; margin-right: 3em;">Control</td><td style="text-align: center;">
-                      <span class="text-button" id="nav-start" title="Start time frame"></span>
                       <span class="text-button" id="nav-backward-more"><img src="/icons/chevron-left-pipe.svg" /></span>
                       <span class="text-button" id="nav-backward"><img src="/icons/chevron-left.svg" /></span>
                       <span id="data-time"></span>
                       <span class="text-button" id="nav-forward"><img src="/icons/chevron-right.svg" /></span>
                       <span class="text-button" id="nav-forward-more"><img src="/icons/chevron-right-pipe.svg" /></span>
-                      <span class="text-button" id="nav-end" title="End time frame"></span>
                     </td>
                 </tr>
                 <tr>
                     <td style="text-align: right"><span id="scale-label">Scale</span></td><td style="text-align: center;"><canvas id="scale"></canvas></td>
                 </tr>
-                <tr class="invisible">
+                <tr id="height-selection" class="invisible">
                     <td style="text-align: right; margin-right: 3em;">Height</td>
-                    <td  id="height-selection" style="text-align: center;">
-                      <span class="surface text-button" id="surface-level" title="Surface">Sfc</span> –
-                      <span class="surface text-button" id="isobaric-1000hPa">1000</span> –
-                      <span class="surface text-button" id="isobaric-850hPa">850</span> –
-                      <span class="surface text-button" id="isobaric-700hPa">700</span> –
-                      <span class="surface text-button" id="isobaric-500hPa">500</span> –
-                      <span class="surface text-button" id="isobaric-250hPa">250</span> –
-                      <span class="surface text-button" id="isobaric-70hPa">70</span> –
-                      <span class="surface text-button" id="isobaric-10hPa">10</span> hPa
+                    <td style="text-align: center;">
+                      <span class="surface text-button" id="surface-level" title="Surface"></span>
                     </td>
                 </tr>
                 <tr class="wind-mode">
                     <td style="text-align: right; margin-right: 3em;">Overlay</td>
                     <td id="overlay-variables" style="text-align: center;">
-                      <span class="text-button" id="overlay-off">None</span>
+                      <span class="text-button" id="overlay-off"></span>
                     </td>
                 </tr>
                 <tr class="ocean-mode invisible">

@@ -51,26 +51,17 @@ var products = function() {
      * @param {String?} level
      * @returns {String}
      */
-    function gfs1p0degPath(attr, type, surface, level) {
+    function rossbyVisProxyPath(attr, type, surface, level) {
         // Check if we're in metadata-driven mode - for any type that needs time-based data
         if (attr.metadataTime && (type === "wind" || type === "temp")) {
             if (type === "wind") {
-                // Use proxy endpoint with metadata time for wind data
+
                 return '/proxy/data?vars=u10,v10&time=' + attr.metadataTime + '&format=json';
             } else if (type === "temp") {
-                // Use proxy endpoint with metadata time for temperature data
                 return '/proxy/data?vars=t2m&time=' + attr.metadataTime + '&format=json';
             }
         }
-        
-        // Use Earth frontend compatible endpoints that delegate to our dynamic handlers
-        var dir = attr.date || "current";
-        var stamp = dir === "current" ? "current" : attr.hour;
-        var file = [stamp, type, surface, level, "gfs", "1.0"].filter(µ.isValue).join("-") + ".json";
-        var path = [WEATHER_PATH, dir, file].join("/");
-        
-        // Earth-compatible path generation for type: ' + type
-        return path;
+
     }
 
     function gfsDate(attr) {
@@ -211,7 +202,7 @@ var products = function() {
                         name: {en: "Wind", ja: "風速"},
                         qualifier: {en: " @ " + describeSurface(attr), ja: " @ " + describeSurfaceJa(attr)}
                     }),
-                    paths: [gfs1p0degPath(attr, "wind", attr.surface, attr.level)],
+                    paths: [rossbyVisProxyPath(attr, "wind", attr.surface, attr.level)],
                     date: gfsDate(attr),
                     builder: function(file) {
                         console.log('Wind builder called with file:', file);
@@ -275,435 +266,6 @@ var products = function() {
             }
         },
 
-        "temperature": {
-            matches: _.matches({param: "wind", overlayType: "temperature"}),
-            create: function(attr) {
-                return buildProduct({
-                    field: "scalar",
-                    type: "temp",
-                    description: localize({
-                        name: {en: "Temp", ja: "気温"},
-                        qualifier: {en: " @ " + describeSurface(attr), ja: " @ " + describeSurfaceJa(attr)}
-                    }),
-                    paths: [gfs1p0degPath(attr, "temp", attr.surface, attr.level)],
-                    date: gfsDate(attr),
-                    builder: function(file) {
-                        console.log('Temperature builder called with file:', file);
-                        
-                        // The server returns Earth-compatible format (array of EarthDataPoint objects)
-                        if(file instanceof Array && file.length > 0) {
-                            var record = file[0];
-                            var data = record.data;
-                            
-                            console.log('Temperature data loaded, header:', record.header, 'data length:', data ? data.length : 'no data');
-                            
-                            return {
-                                header: record.header,
-                                interpolate: bilinearInterpolateScalar,
-                                data: function(i) {
-                                    return data[i];
-                                }
-                            };
-                        } else {
-                            console.error('Temperature builder: Invalid file format:', file);
-                            return null;
-                        }
-                    },
-                    units: [
-                        {label: "°C", conversion: function(x) { return x - 273.15; },       precision: 1},
-                        {label: "°F", conversion: function(x) { return x * 9/5 - 459.67; }, precision: 1},
-                        {label: "K",  conversion: function(x) { return x; },                precision: 1}
-                    ],
-                    scale: {
-                        bounds: [240, 320],  // More realistic temperature range
-                        gradient: µ.segmentedColorScale([
-                            [240,     [37, 4, 42]],      // Very cold (purple)
-                            [250,     [41, 10, 130]],    // Cold (blue) 
-                            [260,     [70, 215, 215]],   // Cool (cyan)
-                            [273.15,  [21, 84, 187]],    // 0°C (blue)
-                            [280,     [24, 132, 14]],    // Mild (green)
-                            [290,     [247, 251, 59]],   // Warm (yellow)
-                            [300,     [235, 167, 21]],   // Hot (orange)
-                            [320,     [88, 27, 67]]      // Very hot (red)
-                        ])
-                    }
-                });
-            }
-        },
-
-        // Dynamic factory for temperature variables (t2m, sst, etc.)
-        "t2m": {
-            matches: function(attr) {
-                return attr.param === "wind" && attr.overlayType === "t2m";
-            },
-            create: function(attr) {
-                return buildProduct({
-                    field: "scalar",
-                    type: "t2m",
-                    description: localize({
-                        name: {en: "t2m", ja: "2m気温"},
-                        qualifier: {en: " @ Surface", ja: " @ 地上"}
-                    }),
-                    paths: ['/proxy/data?vars=t2m&time=' + (attr.metadataTime || '700464') + '&format=json'],
-                    date: gfsDate(attr),
-                    builder: function(file) {
-                        console.log('t2m builder called with file:', file);
-                        
-                        // Handle proxy response format: {data: {t2m: [...], metadata: {...}}
-                        if(file && file.data && file.data.t2m) {
-                            var data = file.data.t2m;
-                            var metadata = file.metadata || {};
-                            
-                            console.log('t2m data loaded, data length:', data ? data.length : 'no data', 'metadata:', metadata);
-                            
-                            // Create Earth-compatible header from metadata
-                            var header = createHeaderFromMetadata(metadata, "t2m", "Temperature");
-                            
-                            return {
-                                header: header,
-                                interpolate: bilinearInterpolateScalar,
-                                data: function(i) {
-                                    return data[i];
-                                }
-                            };
-                        } else {
-                            console.error('t2m builder: Invalid file format:', file);
-                            return null;
-                        }
-                    },
-                    units: [
-                        {label: "°C", conversion: function(x) { return x - 273.15; },       precision: 1},
-                        {label: "°F", conversion: function(x) { return x * 9/5 - 459.67; }, precision: 1},
-                        {label: "K",  conversion: function(x) { return x; },                precision: 1}
-                    ],
-                    scale: {
-                        bounds: [240, 310],
-                        gradient: µ.segmentedColorScale([
-                            [240,     [37, 4, 42]],      // Very cold (purple) -33°C
-                            [250,     [41, 10, 130]],    // Cold (blue) -23°C
-                            [260,     [70, 215, 215]],   // Cool (cyan) -13°C
-                            [270,     [21, 84, 187]],    // Cool (blue) -3°C
-                            [273.15,  [24, 132, 14]],    // 0°C (green)
-                            [280,     [247, 251, 59]],   // Mild (yellow) 7°C
-                            [290,     [235, 167, 21]],   // Warm (orange) 17°C
-                            [300,     [230, 71, 39]],    // Hot (red) 27°C
-                            [310,     [88, 27, 67]]      // Very hot (dark red) 37°C
-                        ])
-                    }
-                });
-            }
-        },
-
-        // Generic scalar overlay factory for metadata variables (d2m, sd, sp, sst, tisr)
-        "scalar_overlay": {
-            matches: function(attr) {
-                // Match any metadata-driven scalar overlay that's not wind or explicit types
-                if (attr.param !== "wind") return false;
-                var overlayType = attr.overlayType;
-                
-                // Skip if it's a known fixed type
-                if (overlayType === "off" || overlayType === "default" || 
-                    overlayType === "temperature" || overlayType === "relative_humidity" ||
-                    overlayType === "wind_power_density" || overlayType === "air_density") {
-                    return false;
-                }
-                
-                // Match metadata variables (d2m, sd, sp, sst, tisr, etc.)
-                return overlayType && typeof overlayType === 'string' && overlayType.length > 0;
-            },
-            create: function(attr) {
-                var overlayType = attr.overlayType;
-                console.log('Creating scalar overlay product for variable:', overlayType);
-                
-                return buildProduct({
-                    field: "scalar",
-                    type: overlayType,
-                    description: localize({
-                        name: {en: overlayType, ja: overlayType},
-                        qualifier: {en: " @ Surface", ja: " @ 地上"}
-                    }),
-                    paths: ['/proxy/data?vars=' + overlayType + '&time=' + (attr.metadataTime || '700464') + '&format=json'],
-                    date: gfsDate(attr),
-                    builder: function(file) {
-                        console.log('Scalar overlay builder called for', overlayType, 'with file:', file);
-                        
-                        // Handle proxy response format: {data: {variable: [...], metadata: {...}}
-                        if(file && file.data && file.data[overlayType]) {
-                            var data = file.data[overlayType];
-                            var metadata = file.metadata || {};
-                            
-                            console.log(overlayType, 'data loaded, data length:', data ? data.length : 'no data', 'metadata:', metadata);
-                            
-                            // Create Earth-compatible header from metadata
-                            var header = createHeaderFromMetadata(metadata, overlayType, getVariableCategory(overlayType));
-                            
-                            return {
-                                header: header,
-                                interpolate: bilinearInterpolateScalar,
-                                data: function(i) {
-                                    return data[i];
-                                }
-                            };
-                        } else {
-                            console.error('Scalar overlay builder: Invalid file format for', overlayType, ':', file);
-                            return null;
-                        }
-                    },
-                    units: getVariableUnits(overlayType),
-                    scale: getVariableScale(overlayType)
-                });
-            }
-        },
-
-        "relative_humidity": {
-            matches: _.matches({param: "wind", overlayType: "relative_humidity"}),
-            create: function(attr) {
-                return buildProduct({
-                    field: "scalar",
-                    type: "relative_humidity",
-                    description: localize({
-                        name: {en: "Relative Humidity", ja: "相対湿度"},
-                        qualifier: {en: " @ " + describeSurface(attr), ja: " @ " + describeSurfaceJa(attr)}
-                    }),
-                    paths: [gfs1p0degPath(attr, "relative_humidity", attr.surface, attr.level)],
-                    date: gfsDate(attr),
-                    builder: function(file) {
-                        var vars = file.variables;
-                        var rh = vars.Relative_humidity_isobaric || vars.Relative_humidity_height_above_ground;
-                        var data = rh.data;
-                        return {
-                            header: netcdfHeader(vars.time, vars.lat, vars.lon, file.Originating_or_generating_Center),
-                            interpolate: bilinearInterpolateScalar,
-                            data: function(i) {
-                                return data[i];
-                            }
-                        };
-                    },
-                    units: [
-                        {label: "%", conversion: function(x) { return x; }, precision: 0}
-                    ],
-                    scale: {
-                        bounds: [0, 100],
-                        gradient: function(v, a) {
-                            return µ.sinebowColor(Math.min(v, 100) / 100, a);
-                        }
-                    }
-                });
-            }
-        },
-
-        "air_density": {
-            matches: _.matches({param: "wind", overlayType: "air_density"}),
-            create: function(attr) {
-                return buildProduct({
-                    field: "scalar",
-                    type: "air_density",
-                    description: localize({
-                        name: {en: "Air Density", ja: "空気密度"},
-                        qualifier: {en: " @ " + describeSurface(attr), ja: " @ " + describeSurfaceJa(attr)}
-                    }),
-                    paths: [gfs1p0degPath(attr, "air_density", attr.surface, attr.level)],
-                    date: gfsDate(attr),
-                    builder: function(file) {
-                        var vars = file.variables;
-                        var air_density = vars.air_density, data = air_density.data;
-                        return {
-                            header: netcdfHeader(vars.time, vars.lat, vars.lon, file.Originating_or_generating_Center),
-                            interpolate: bilinearInterpolateScalar,
-                            data: function(i) {
-                                return data[i];
-                            }
-                        };
-                    },
-                    units: [
-                        {label: "kg/m³", conversion: function(x) { return x; }, precision: 2}
-                    ],
-                    scale: {
-                        bounds: [0, 1.5],
-                        gradient: function(v, a) {
-                            return µ.sinebowColor(Math.min(v, 1.5) / 1.5, a);
-                        }
-                    }
-                });
-            }
-        },
-
-        "wind_power_density": {
-            matches: _.matches({param: "wind", overlayType: "wind_power_density"}),
-            create: function(attr) {
-                var windProduct = FACTORIES.wind.create(attr);
-                var airdensProduct = FACTORIES.air_density.create(attr);
-                return buildProduct({
-                    field: "scalar",
-                    type: "wind_power_density",
-                    description: localize({
-                        name: {en: "Wind Power Density", ja: "風力エネルギー密度"},
-                        qualifier: {en: " @ " + describeSurface(attr), ja: " @ " + describeSurfaceJa(attr)}
-                    }),
-                    paths: [windProduct.paths[0], airdensProduct.paths[0]],
-                    date: gfsDate(attr),
-                    builder: function(windFile, airdensFile) {
-                        var windBuilder = windProduct.builder(windFile);
-                        var airdensBuilder = airdensProduct.builder(airdensFile);
-                        var windData = windBuilder.data, windInterpolate = windBuilder.interpolate;
-                        var airdensData = airdensBuilder.data, airdensInterpolate = airdensBuilder.interpolate;
-                        return {
-                            header: _.clone(airdensBuilder.header),
-                            interpolate: function(x, y, g00, g10, g01, g11) {
-                                var m = windInterpolate(x, y, g00[0], g10[0], g01[0], g11[0])[2];
-                                var ρ = airdensInterpolate(x, y, g00[1], g10[1], g01[1], g11[1]);
-                                return 0.5 * ρ * m * m * m;
-                            },
-                            data: function(i) {
-                                return [windData(i), airdensData(i)];
-                            }
-                        };
-                    },
-                    units: [
-                        {label: "kW/m²", conversion: function(x) { return x / 1000; }, precision: 1},
-                        {label: "W/m²", conversion: function(x) { return x; }, precision: 0}
-                    ],
-                    scale: {
-                        bounds: [0, 80000],
-                        gradient: µ.segmentedColorScale([
-                            [0, [15, 4, 96]],
-                            [250, [30, 8, 180]],
-                            [1000, [121, 102, 2]],
-                            [2000, [118, 161, 66]],
-                            [4000, [50, 102, 219]],
-                            [8000, [19, 131, 193]],
-                            [16000, [59, 204, 227]],
-                            [64000, [241, 1, 45]],
-                            [80000, [243, 0, 241]]
-                        ])
-                    }
-                });
-            }
-        },
-
-        "total_cloud_water": {
-            matches: _.matches({param: "wind", overlayType: "total_cloud_water"}),
-            create: function(attr) {
-                return buildProduct({
-                    field: "scalar",
-                    type: "total_cloud_water",
-                    description: localize({
-                        name: {en: "Total Cloud Water", ja: "雲水量"},
-                        qualifier: ""
-                    }),
-                    paths: [gfs1p0degPath(attr, "total_cloud_water")],
-                    date: gfsDate(attr),
-                    builder: function(file) {
-                        var record = file[0], data = record.data;
-                        return {
-                            header: record.header,
-                            interpolate: bilinearInterpolateScalar,
-                            data: function(i) {
-                                return data[i];
-                            }
-                        }
-                    },
-                    units: [
-                        {label: "kg/m²", conversion: function(x) { return x; }, precision: 3}
-                    ],
-                    scale: {
-                        bounds: [0, 1],
-                        gradient: µ.segmentedColorScale([
-                            [0.0, [5, 5, 89]],
-                            [0.2, [170, 170, 230]],
-                            [1.0, [255, 255, 255]]
-                        ])
-                    }
-                });
-            }
-        },
-
-        "total_precipitable_water": {
-            matches: _.matches({param: "wind", overlayType: "total_precipitable_water"}),
-            create: function(attr) {
-                return buildProduct({
-                    field: "scalar",
-                    type: "total_precipitable_water",
-                    description: localize({
-                        name: {en: "Total Precipitable Water", ja: "可降水量"},
-                        qualifier: ""
-                    }),
-                    paths: [gfs1p0degPath(attr, "total_precipitable_water")],
-                    date: gfsDate(attr),
-                    builder: function(file) {
-                        var record = file[0], data = record.data;
-                        return {
-                            header: record.header,
-                            interpolate: bilinearInterpolateScalar,
-                            data: function(i) {
-                                return data[i];
-                            }
-                        }
-                    },
-                    units: [
-                        {label: "kg/m²", conversion: function(x) { return x; }, precision: 3}
-                    ],
-                    scale: {
-                        bounds: [0, 70],
-                        gradient:
-                            µ.segmentedColorScale([
-                                [0, [230, 165, 30]],
-                                [10, [120, 100, 95]],
-                                [20, [40, 44, 92]],
-                                [30, [21, 13, 193]],
-                                [40, [75, 63, 235]],
-                                [60, [25, 255, 255]],
-                                [70, [150, 255, 255]]
-                            ])
-                    }
-                });
-            }
-        },
-
-        "mean_sea_level_pressure": {
-            matches: _.matches({param: "wind", overlayType: "mean_sea_level_pressure"}),
-            create: function(attr) {
-                return buildProduct({
-                    field: "scalar",
-                    type: "mean_sea_level_pressure",
-                    description: localize({
-                        name: {en: "Mean Sea Level Pressure", ja: "海面更正気圧"},
-                        qualifier: ""
-                    }),
-                    paths: [gfs1p0degPath(attr, "mean_sea_level_pressure")],
-                    date: gfsDate(attr),
-                    builder: function(file) {
-                        var record = file[0], data = record.data;
-                        return {
-                            header: record.header,
-                            interpolate: bilinearInterpolateScalar,
-                            data: function(i) {
-                                return data[i];
-                            }
-                        }
-                    },
-                    units: [
-                        {label: "hPa", conversion: function(x) { return x / 100; }, precision: 0},
-                        {label: "mmHg", conversion: function(x) { return x / 133.322387415; }, precision: 0},
-                        {label: "inHg", conversion: function(x) { return x / 3386.389; }, precision: 1}
-                    ],
-                    scale: {
-                        bounds: [92000, 105000],
-                        gradient: µ.segmentedColorScale([
-                            [92000, [40, 0, 0]],
-                            [95000, [187, 60, 31]],
-                            [96500, [137, 32, 30]],
-                            [98000, [16, 1, 43]],
-                            [100500, [36, 1, 93]],
-                            [101300, [241, 254, 18]],
-                            [103000, [228, 246, 223]],
-                            [105000, [255, 255, 255]]
-                        ])
-                    }
-                });
-            }
-        },
-
         "currents": {
             matches: _.matches({param: "ocean", surface: "surface", level: "currents"}),
             create: function(attr) {
@@ -750,6 +312,63 @@ var products = function() {
                         },
                         particles: {velocityScale: 1/4400, maxIntensity: 0.7}
                     });
+                });
+            }
+        },
+
+        // Generic scalar overlay factory for metadata variables (d2m, sd, sp, sst, tisr)
+        "scalar_overlay": {
+            matches: function(attr) {
+                var overlayType = attr.overlayType;
+                if (overlayType === "off") return false;
+                return overlayType && typeof overlayType === 'string';
+            },
+            create: function(attr) {
+                var overlayType = attr.overlayType;
+                var path;
+                if (attr.metadataLevel) {
+                    path = '/proxy/data?vars=' + overlayType + '&time=' + attr.metadataTime + '&level=' + attr.metadataLevel + '&format=json';
+                } else {
+                    path = '/proxy/data?vars=' + overlayType + '&time=' + attr.metadataTime + '&format=json';
+                }
+                console.log('Creating scalar overlay product for variable:', overlayType);
+                
+                return buildProduct({
+                    field: "scalar",
+                    type: overlayType,
+                    description: localize({
+                        name: {en: overlayType, ja: overlayType},
+                        qualifier: {en: " @ Surface", ja: " @ 地上"}
+                    }),
+                    paths: [path],
+                    date: gfsDate(attr),
+                    builder: function(file) {
+                        console.log('Scalar overlay builder called for', overlayType, 'with file:', file);
+                        
+                        // Handle proxy response format: {data: {variable: [...], metadata: {...}}
+                        if(file && file.data && file.data[overlayType]) {
+                            var data = file.data[overlayType];
+                            var metadata = file.metadata || {};
+                            
+                            console.log(overlayType, 'data loaded, data length:', data ? data.length : 'no data', 'metadata:', metadata);
+                            
+                            // Create Earth-compatible header from metadata
+                            var header = createHeaderFromMetadata(metadata, overlayType, µ.getVariableQuantity(overlayType));
+                            
+                            return {
+                                header: header,
+                                interpolate: bilinearInterpolateScalar,
+                                data: function(i) {
+                                    return data[i];
+                                }
+                            };
+                        } else {
+                            console.error('Scalar overlay builder: Invalid file format for', overlayType, ':', file);
+                            return null;
+                        }
+                    },
+                    units: getVariableUnits(overlayType),
+                    scale: getVariableScale(overlayType)
                 });
             }
         },
@@ -939,24 +558,10 @@ var products = function() {
     }
 
     /**
-     * Helper function to determine variable category for proper visualization
-     */
-    function getVariableCategory(variable) {
-        var varName = variable.toLowerCase();
-        if (/temp|t2m|sst/.test(varName)) return "Temperature";
-        if (/pressure|sp|msl|slp/.test(varName)) return "Pressure";
-        if (/humidity|dewpoint|d2m|rh/.test(varName)) return "Humidity";
-        if (/precipitation|rain|snow|tp|sd/.test(varName)) return "Precipitation";
-        if (/radiation|solar|tisr/.test(varName)) return "Radiation";
-        if (/wind|u10|v10|gust/.test(varName)) return "Wind";
-        return "General";
-    }
-
-    /**
      * Get appropriate units for variable based on category
      */
     function getVariableUnits(variable) {
-        var category = getVariableCategory(variable);
+        var category = µ.getVariableQuantity(variable);
         switch (category) {
             case 'Temperature':
                 return [
@@ -994,23 +599,41 @@ var products = function() {
      * Get appropriate color scale for variable based on category
      */
     function getVariableScale(variable) {
-        var category = getVariableCategory(variable);
+        var category = µ.getVariableQuantity(variable);
         switch (category) {
             case 'Temperature':
                 return {
-                    bounds: [193, 328],
+                    bounds: [240, 320],  // More realistic temperature range in Kelvin
                     gradient: µ.segmentedColorScale([
-                        [193, [37, 4, 42]],
-                        [233.15, [192, 37, 149]],
-                        [255.372, [70, 215, 215]],
-                        [273.15, [21, 84, 187]],
-                        [298, [235, 167, 21]],
-                        [328, [88, 27, 67]]
+                        [240,     [37, 4, 42]],      // Very cold (purple)
+                        [250,     [41, 10, 130]],    // Cold (blue)
+                        [260,     [70, 215, 215]],   // Cool (cyan)
+                        [273.15,  [21, 84, 187]],    // 0°C (blue)
+                        [280,     [24, 132, 14]],    // Mild (green)
+                        [290,     [247, 251, 59]],   // Warm (yellow)
+                        [300,     [235, 167, 21]],   // Hot (orange)
+                        [320,     [88, 27, 67]]      // Very hot (red)
                     ])
                 };
+
+            // NEW: Case for Geopotential Height
+            case 'Geopotential Height':
+                return {
+                    // Typical range for geopotential height in geopotential meters (gpm).
+                    // This range effectively visualizes troughs (low values) and ridges (high values).
+                    bounds: [100, 20100],
+                    gradient: µ.segmentedColorScale([
+                        [100,    [41, 10, 130]],    // Deep Trough (cool blue/purple)
+                        [5100,    [70, 215, 215]],   // Trough (cyan)
+                        [10100,    [24, 132, 14]],    // Zonal Flow (green)
+                        [15100,    [247, 251, 59]],   // Ridge (warm yellow)
+                        [20100,    [235, 167, 21]]     // Strong Ridge (hot orange)
+                    ])
+                };
+
             case 'Pressure':
                 return {
-                    bounds: [90000, 105000],
+                    bounds: [90000, 105000], // in Pascals
                     gradient: µ.segmentedColorScale([
                         [90000, [40, 0, 0]],
                         [95000, [187, 60, 31]],
@@ -1021,19 +644,19 @@ var products = function() {
                 };
             case 'Humidity':
                 return {
-                    bounds: [200, 300],
+                    bounds: [200, 300], // in Kelvin (for dew point)
                     gradient: function(v, a) {
                         return µ.sinebowColor(Math.min(Math.max(v - 200, 0), 100) / 100, a);
                     }
                 };
             case 'Precipitation':
                 return {
-                    bounds: [0, 0.01],
+                    bounds: [0, 0.01], // in meters/s or a similar unit
                     gradient: µ.segmentedColorScale([
-                        [0, [135, 206, 235]],
-                        [0.002, [70, 130, 180]],
-                        [0.005, [25, 25, 112]],
-                        [0.01, [0, 0, 139]]
+                        [0, [135, 206, 235]],      // Light precipitation (light blue)
+                        [0.002, [70, 130, 180]],   // Moderate (steel blue)
+                        [0.005, [25, 25, 112]],    // Heavy (midnight blue)
+                        [0.01, [0, 0, 139]]        // Very heavy (dark blue)
                     ])
                 };
             case 'Radiation':

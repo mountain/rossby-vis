@@ -1,15 +1,13 @@
 /**
  * Metadata-driven UI system for Earth.js integration with Rossby server
- * Phase 4: Enhanced Mode System with Metadata-Driven Time Controls
  */
 
 var MetadataUI = (function() {
     "use strict";
 
-    // Phase 4.1: Mode Detection System
     function detectMode(metadata) {
         var variables = Object.keys(metadata.variables || {});
-        
+
         // Wind mode detection - look for u/v component pairs
         var windPairs = detectWindPairs(variables);
         if (windPairs.length > 0) {
@@ -42,26 +40,30 @@ var MetadataUI = (function() {
     function detectWindPairs(variables) {
         var pairs = [];
         var windPatterns = [
-            {u: /^u(\d+)$/, v: /^v(\d+)$/},        // u10/v10, u200/v200, u250/v250
+            {u: /^u(\d+)$/, v: /^v(\d+)$/},        // u10/v10, u100/v100
             {u: /^u(\d+)hPa$/, v: /^v(\d+)hPa$/},  // u850hPa/v850hPa
             {u: /^uas$/, v: /^vas$/},              // Surface wind (CMIP naming)
             {u: /^ua$/, v: /^va$/},                // Generic atmospheric wind
             {u: /^u_wind$/, v: /^v_wind$/}         // Alternative naming
         ];
-        
+
         windPatterns.forEach(function(pattern) {
             variables.forEach(function(uVar) {
                 if (pattern.u.test(uVar)) {
-                    var match = uVar.match(pattern.u);
-                    var level = match && match[1] ? match[1] : '';
-                    var vVar = uVar.replace(pattern.u, pattern.v.source.replace('(\\d+)', level));
+                    var vVar = uVar.replace(/^u/, 'v');
+
                     if (variables.indexOf(vVar) !== -1) {
-                        pairs.push({u: uVar, v: vVar, level: level});
+                         var match = uVar.match(pattern.u);
+                        var level = match && match[1] ? match[1] : '';
+
+                        if (!pairs.some(p => p.u === uVar && p.v === vVar)) {
+                            pairs.push({u: uVar, v: vVar, level: level});
+                        }
                     }
                 }
             });
         });
-        
+
         return pairs;
     }
 
@@ -72,19 +74,21 @@ var MetadataUI = (function() {
             {u: /^u_current$/, v: /^v_current$/},  // Generic current naming
             {u: /^uo$/, v: /^vo$/}                 // CMIP ocean velocity naming
         ];
-        
+
         oceanPatterns.forEach(function(pattern) {
             var uVars = variables.filter(function(v) { return pattern.u.test(v); });
-            var vVars = variables.filter(function(v) { return pattern.v.test(v); });
-            
+
             uVars.forEach(function(uVar) {
-                var correspondingV = uVar.replace(pattern.u, pattern.v.source);
-                if (vVars.indexOf(correspondingV) !== -1) {
-                    pairs.push({u: uVar, v: correspondingV});
+                var correspondingV = uVar.replace(/^u/, 'v');
+
+                if (variables.indexOf(correspondingV) !== -1) {
+                    if (!pairs.some(p => p.u === uVar && p.v === correspondingV)) {
+                        pairs.push({u: uVar, v: correspondingV});
+                    }
                 }
             });
         });
-        
+
         return pairs;
     }
 
@@ -100,7 +104,6 @@ var MetadataUI = (function() {
         });
     }
 
-    // Phase 4.1: Mode UI Setup
     function setupModeUI(mode, modeInfo) {
         console.log('MetadataUI: Setting up mode UI for:', mode, modeInfo);
         
@@ -122,7 +125,6 @@ var MetadataUI = (function() {
         console.log('MetadataUI: Mode set to:', mode);
     }
 
-    // Phase 4.2: Metadata-Driven Time Navigation
     function setupMetadataTimeNavigation(metadata) {
         var timeCoords = metadata.coordinates && metadata.coordinates.time ? metadata.coordinates.time : [];
         
@@ -156,17 +158,7 @@ var MetadataUI = (function() {
     function updateTimeDisplayElements() {
         var timeInfo = window.metadataTimeInfo;
         if (!timeInfo) return;
-        
-        // Update with pure numeric values from NC coordinates - no datetime parsing/formatting
-        d3.select('#nav-start')
-            .text(timeInfo.start.toString())
-            .attr('title', 'Start: ' + timeInfo.start);
-        
-        d3.select('#nav-end')
-            .text(timeInfo.end.toString())
-            .attr('title', 'End: ' + timeInfo.end);
-        
-        // Update data-time with current time (Phase 4 requirement)
+
         d3.select('#data-time')
             .text(timeInfo.current.toString())
             .attr('title', 'Current: ' + timeInfo.current + ' (' + (timeInfo.currentIndex + 1) + '/' + timeInfo.count + ')');
@@ -180,11 +172,7 @@ var MetadataUI = (function() {
         d3.select('#nav-forward').on('click', function() { navigateMetadataTime(1); });
         d3.select('#nav-backward-more').on('click', function() { navigateMetadataTime(-5); });
         d3.select('#nav-forward-more').on('click', function() { navigateMetadataTime(5); });
-        
-        // Direct navigation to start/end
-        d3.select('#nav-start').on('click', function() { navigateToMetadataTime(0); });
-        d3.select('#nav-end').on('click', function() { navigateToMetadataTime(-1); });
-        
+
         // Keyboard navigation support
         d3.select(document).on('keydown', function() {
             var event = d3.event;
@@ -213,12 +201,19 @@ var MetadataUI = (function() {
             // Update compatibility index for earth.js
             window.currentTimeIndex = newIndex;
             
-            // Update configuration to trigger data reload
+            // Store the metadata time globally for products system to use
+            window.currentMetadataTime = timeInfo.current;
+            
+            // Update configuration to trigger data reload with metadata time
             if (typeof configuration !== 'undefined') {
+                // Use the actual metadata time value for data requests
                 configuration.save({
                     metadataTime: timeInfo.current,
+                    currentTime: timeInfo.current, // Also set as currentTime
                     date: 'metadata', // Flag to use metadata time
-                    hour: ''
+                    hour: '',
+                    // Force data reload by changing a timestamp
+                    _timeChanged: Date.now()
                 });
             }
             
@@ -238,33 +233,10 @@ var MetadataUI = (function() {
                 }, 500);
             }
             
-            console.log('MetadataUI: Navigated to time', timeInfo.current, '(index', newIndex + ')');
+            console.log('MetadataUI: Navigated to time', timeInfo.current, '(index', newIndex + '), stored as currentMetadataTime');
         }
     }
 
-    function navigateToMetadataTime(index) {
-        var timeInfo = window.metadataTimeInfo;
-        if (!timeInfo) return;
-        
-        // Handle negative indices (from end)
-        var targetIndex = index < 0 ? timeInfo.all.length + index : index;
-        var clampedIndex = Math.max(0, Math.min(timeInfo.all.length - 1, targetIndex));
-        
-        timeInfo.currentIndex = clampedIndex;
-        timeInfo.current = timeInfo.all[clampedIndex];
-        
-        if (typeof configuration !== 'undefined') {
-            configuration.save({
-                metadataTime: timeInfo.current,
-                date: 'metadata',
-                hour: ''
-            });
-        }
-        
-        updateTimeDisplayElements();
-    }
-
-    // Phase 5: Variable Categorization Strategy
     function categorizeVariables(variables, mode, modeInfo) {
         var categorized = {
             atmospheric: [],
@@ -273,7 +245,7 @@ var MetadataUI = (function() {
             excluded: [],
             vectorComponents: []
         };
-        
+
         // Pattern-based categorization
         var patterns = {
             atmospheric: /^(t2m|temp|temperature|d2m|dewpoint|humidity|rh|relative.*humidity|sp|surface.*pressure|msl|mean.*sea.*level|tisr|radiation|solar|tcw|total.*cloud.*water|cloud)$/i,
@@ -314,13 +286,6 @@ var MetadataUI = (function() {
         return categorized;
     }
 
-    // Phase 5: Use Variable Names Directly (No Smart Display Name Generation)
-    function createDisplayName(varName, longName) {
-        // Use the actual variable name from NC file directly
-        return varName;
-    }
-
-    // Phase 5: Dynamic Overlay Control Generation
     function generateModeSpecificOverlays(mode, categorizedVars, metadata) {
         var container = d3.select('#overlay-variables');
         if (container.empty()) {
@@ -337,12 +302,12 @@ var MetadataUI = (function() {
         
         // Clear existing controls
         container.selectAll('*').remove();
-        
+
         // Add default "None" option
         addOverlayButton(container, 'overlay-off', 'None', {overlayType: 'off'});
-        
+
         var availableVars = [];
-        
+
         switch (mode) {
             case 'normal':
                 // Show all non-coordinate variables directly
@@ -369,27 +334,24 @@ var MetadataUI = (function() {
         
         // Generate overlay buttons for available variables
         availableVars.forEach(function(varName) {
-            var varInfo = metadata.variables[varName] || {};
-            var displayName = createDisplayName(varName, varInfo.attributes && varInfo.attributes.long_name);
-            
-            addOverlayButton(container, 'overlay-' + varName, displayName, {
+            addOverlayButton(container, 'overlay-' + varName, varName, {
                 overlayType: varName,
-                param: mode === 'ocean' ? 'ocean' : 'wind'
+                param: mode  // Use the actual detected mode directly
             });
-            
+
             // Register variable with products system
             registerVariableOverlay(varName, mode);
         });
-        
+
         console.log('MetadataUI: Generated', availableVars.length, 'overlay controls for', mode, 'mode:', availableVars);
     }
 
     function addOverlayButton(container, id, text, config) {
         // Add separator
         if (container.selectAll('.text-button').size() > 0) {
-            container.append('span').text(' – ');
+            container.append('span').text(' ');
         }
-        
+
         // Add button
         var button = container.append('span')
             .attr('class', 'text-button')
@@ -410,7 +372,6 @@ var MetadataUI = (function() {
         return button;
     }
 
-    // Phase 5: Variable Selection Data Download System
     function setupVariableSelectionHandlers() {
         // Listen for overlay selection changes in configuration
         if (typeof configuration !== 'undefined' && configuration.on) {
@@ -442,8 +403,8 @@ var MetadataUI = (function() {
         
         // Update data layer display
         var currentMode = d3.select('#data-layer').text();
-        d3.select('#data-layer').text(currentMode + ' + ' + createDisplayName(varName));
-        
+        d3.select('#data-layer').text(currentMode + ' + ' + varName);
+
         // The existing gridAgent system will handle the actual download
         // when configuration changes trigger a rebuild
         if (typeof gridAgent !== 'undefined' && gridAgent.submit) {
@@ -459,31 +420,291 @@ var MetadataUI = (function() {
     }
 
     function registerVariableOverlay(varName, mode) {
-        // Register with products system using existing GFS-style data loading (not new Rossby proxy)
+        // Register with products system for metadata-driven variables
         if (typeof products !== 'undefined' && products && products.productsFor && products.productsFor.FACTORIES) {
-            // Use the existing Earth.js overlay system instead of creating new Rossby endpoints
-            // This maps NC file variables to existing overlay types that Earth.js already knows how to handle
-            
-            var overlayMapping = {
-                't2m': 'temp',
-                'temperature': 'temp', 
-                'd2m': 'relative_humidity',
-                'rh': 'relative_humidity',
-                'sp': 'mean_sea_level_pressure',
-                'msl': 'mean_sea_level_pressure',
-                'sst': 'temp',
-                'u10': 'wind',
-                'v10': 'wind'
+            // Create a dynamic product factory for this variable that uses metadata time AND level
+            products.productsFor.FACTORIES[varName] = {
+                matches: function(attr) {
+                    return attr.overlayType === varName && 
+                           attr.param === mode;  // Use the actual detected mode
+                },
+                create: function(attr) {
+                    console.log('Creating scalar overlay product for variable:', varName, 'with attributes:', attr);
+                    
+                    // Use current metadata time if available, fallback to configuration time
+                    var currentTime = window.currentMetadataTime || 
+                                    (window.metadataTimeInfo && window.metadataTimeInfo.current) ||
+                                    attr.metadataTime ||
+                                    attr.currentTime; // Use metadata time as fallback, not old GFS time
+                    
+                    // Build data URL with time and level parameters
+                    var dataUrl = '/proxy/data?vars=' + varName + '&time=' + currentTime;
+                    
+                    // Add level parameter if 3D data is selected
+                    if (attr.metadataLevel && attr.metadataLevel !== 'Sfc' && attr.metadataLevel !== 'surface') {
+                        dataUrl += '&level=' + attr.metadataLevel;
+                        console.log('MetadataUI: Including level parameter:', attr.metadataLevel);
+                    }
+
+                    dataUrl += '&format=json';
+
+                    console.log('MetadataUI: Generated data URL:', dataUrl);
+                    
+                    // Return a product structure that Earth.js expects
+                    return {
+                        load: function() {
+                            console.log('MetadataUI: Loading data from:', dataUrl);
+                            return µ.loadJson(dataUrl).then(function(data) {
+                                console.log('MetadataUI: Data loaded for variable:', varName, data);
+                                
+                                // Transform Rossby data to Earth format
+                                if (data && data.data && data.data[varName]) {
+                                    return [{
+                                        header: {
+                                            // Extract grid info from metadata
+                                            nx: data.metadata && data.metadata.shape ? data.metadata.shape[2] : 144,
+                                            ny: data.metadata && data.metadata.shape ? data.metadata.shape[1] : 73,
+                                            lo1: 0, la1: 90, lo2: 359, la2: -90,
+                                            dx: 2.5, dy: 2.5,
+                                            parameterNumberName: varName,
+                                            parameterUnit: data.metadata && data.metadata.variables && data.metadata.variables[varName] ? 
+                                                          data.metadata.variables[varName].units || '' : ''
+                                        },
+                                        data: data.data[varName]
+                                    }];
+                                } else {
+                                    console.error('MetadataUI: Invalid data structure for variable:', varName);
+                                    return null;
+                                }
+                            }, function(error) {
+                                console.error('MetadataUI: Failed to load data for variable:', varName, error);
+                                return null;
+                            });
+                        }
+                    };
+                }
             };
             
-            var earthOverlayType = overlayMapping[varName] || varName;
-            
-            console.log('MetadataUI: Mapping variable', varName, 'to existing Earth overlay type:', earthOverlayType);
-            
-            // Don't register new product factories - use existing Earth.js system
-            // The existing products system already handles temp, wind, relative_humidity, etc.
-            // We just need to make sure the UI correctly triggers the existing overlays
+            console.log('MetadataUI: Registered product factory for variable:', varName);
         }
+    }
+
+     function analyzeDimensions(metadata) {
+        var variables = metadata.variables || {};
+        var analysis = {
+            is3D: false,
+            availableLevels: [],
+            levelDimension: null,
+            variablesWith3D: [],
+            levelType: null // 'pressure', 'height', 'model'
+        };
+        
+        // Check each variable for dimensional structure
+        Object.keys(variables).forEach(function(varName) {
+            var varInfo = variables[varName];
+            var dimensions = varInfo.dimensions || [];
+            
+            // Look for level/height dimensions
+            var levelDims = dimensions.filter(function(dim) {
+                var dimLower = dim.toLowerCase();
+                return ['level', 'plev', 'height', 'isobaric', 'lev', 'z'].indexOf(dimLower) !== -1;
+            });
+            
+            if (levelDims.length > 0) {
+                analysis.is3D = true;
+                analysis.levelDimension = levelDims[0];
+                analysis.variablesWith3D.push(varName);
+            }
+        });
+        
+        // Extract available levels from coordinates
+        if (analysis.is3D && analysis.levelDimension) {
+            var levelCoords = metadata.coordinates && metadata.coordinates[analysis.levelDimension];
+            if (levelCoords && Array.isArray(levelCoords)) {
+                analysis.availableLevels = levelCoords.map(formatLevel);
+                analysis.levelType = determineLevelType(levelCoords);
+            }
+        }
+        
+        // Check dimensions metadata for additional info
+        var dimInfo = metadata.dimensions && metadata.dimensions[analysis.levelDimension];
+        if (dimInfo && dimInfo.size) {
+            console.log('MetadataUI: Found', dimInfo.size, 'levels in dimension', analysis.levelDimension);
+        }
+        
+        console.log('MetadataUI: Dimension analysis complete:', {
+            is3D: analysis.is3D,
+            levelDimension: analysis.levelDimension,
+            availableLevels: analysis.availableLevels.length,
+            levelType: analysis.levelType,
+            variables3D: analysis.variablesWith3D
+        });
+        
+        return analysis;
+    }
+
+    function determineLevelType(levelCoords) {
+        if (!levelCoords || levelCoords.length === 0) return 'unknown';
+        
+        var firstLevel = levelCoords[0];
+        var lastLevel = levelCoords[levelCoords.length - 1];
+        var minLevel = Math.min.apply(Math, levelCoords);
+        var maxLevel = Math.max.apply(Math, levelCoords);
+        
+        // Pressure levels - check for typical pressure ranges
+        // Pa range: 100-101325 Pa (1-1013.25 hPa)
+        // hPa range: 1-1013 hPa
+        if ((minLevel >= 100 && maxLevel <= 101325) || (minLevel >= 1 && maxLevel <= 1013)) {
+            return minLevel > 1000 ? 'pressure_pa' : 'pressure_hpa';
+        }
+        
+        // Large pressure values in Pa (10000+ Pa = 100+ hPa)
+        if (minLevel > 10000 && maxLevel > 10000) {
+            return 'pressure_pa';
+        }
+        
+        // Height levels (meters) - typically 0-20000m range
+        if (minLevel >= 0 && maxLevel < 50000 && minLevel < maxLevel) {
+            return 'height_meters';
+        }
+        
+        // Model levels (dimensionless) - typically 0-1 range
+        if (minLevel >= 0 && maxLevel <= 1) {
+            return 'model_levels';
+        }
+        
+        // Default to pressure if values are in typical atmospheric pressure range
+        if (minLevel > 50 && maxLevel > 50) {
+            return minLevel > 1500 ? 'pressure_pa' : 'pressure_hpa';
+        }
+        
+        return 'unknown';
+    }
+
+    function formatLevel(level) {
+        return level.toString();
+    }
+
+    function manageHeightSelection(dimensionAnalysis) {
+        var heightRow = d3.select('#height-selection');
+        if (heightRow.empty()) {
+            console.warn('MetadataUI: Height selection row not found in DOM');
+            return;
+        }
+
+        if (dimensionAnalysis.is3D && dimensionAnalysis.availableLevels.length > 0) {
+            // Show height selection for 3D data
+            heightRow.classed('invisible', false);
+            
+            // Generate level controls
+            generateHeightControls(dimensionAnalysis.availableLevels, dimensionAnalysis.levelType);
+            
+            console.log('MetadataUI: Showing height selection for 3D data:', {
+                dimension: dimensionAnalysis.levelDimension,
+                levels: dimensionAnalysis.availableLevels.length,
+                type: dimensionAnalysis.levelType,
+                variables: dimensionAnalysis.variablesWith3D
+            });
+
+            setTimeout(function () {
+                handleLevelSelection(dimensionAnalysis.availableLevels[0], dimensionAnalysis.levelType);
+            }, 1000);
+        } else {
+            // Hide height selection for 2D data
+            heightRow.classed('invisible', true);
+            
+            console.log('MetadataUI: Hiding height selection for 2D data');
+        }
+    }
+
+    function generateHeightControls(levels, levelType) {
+        var container = d3.select('#surface-level');
+        
+        if (container.empty()) {
+            console.warn('MetadataUI: Height control container not found');
+            return;
+        }
+        
+        container.selectAll('*').remove();
+
+        // Always include surface if not already present and if appropriate
+        var needsSurface = !levels.some(function(level) {
+            var levelLower = level.toLowerCase();
+            return levelLower.indexOf('sfc') !== -1 || 
+                   levelLower.indexOf('surface') !== -1 ||
+                   level === '1000hPa'; // Surface-like pressure
+        });
+        
+        if (needsSurface && levelType !== 'height_meters') {
+            levels = ['Sfc'].concat(levels);
+        }
+        
+        // Limit number of levels shown (max 8 for UI space)
+        var displayLevels = levels.length > 8 ? 
+            [levels[0]].concat(levels.slice(1).filter(function(level, index) { 
+                return index % Math.ceil(levels.length / 7) === 0; 
+            })) :
+            levels;
+        
+        displayLevels.forEach(function(level, index) {
+            if (index > 0) {
+                container.append('span').text(' ');
+            }
+
+            var buttonId = 'level-' + level.replace(/[^a-zA-Z0-9]/g, '');
+            var button = container.append('span')
+                .attr('class', 'surface text-button')
+                .attr('id', buttonId)
+                .attr('title', 'Level: ' + level)
+                .text(level);
+            
+            // Bind click handler for level selection
+            button.on('click', function() {
+                handleLevelSelection(level, levelType);
+            });
+        });
+        
+        // Add appropriate unit label
+        var unitLabel = levelType === 'pressure_hpa' || levelType === 'pressure_pa' ? ' hPa' :
+                        levelType === 'height_meters' ? ' m' : '';
+        if (unitLabel) {
+            container.append('span').text(unitLabel);
+        }
+        
+        console.log('MetadataUI: Generated', displayLevels.length, 'height controls:', displayLevels);
+    }
+
+    function handleLevelSelection(selectedLevel, levelType) {
+        console.log('MetadataUI: Level selected:', selectedLevel, '(type:', levelType + ')');
+        
+        // Update configuration to trigger data reload
+        if (typeof configuration !== 'undefined') {
+            var surface = selectedLevel === 'Sfc' || selectedLevel.indexOf('surface') !== -1 ? 'surface' : 'isobaric';
+            var levelValue = selectedLevel === 'Sfc' ? 'level' : selectedLevel;
+            
+            // Preserve the current param (mode) to prevent mode switching
+            var currentParam = configuration.get('param');
+            
+            configuration.save({
+                surface: surface,
+                level: levelValue,
+                // Preserve the current mode to prevent switching back to wind mode
+                param: currentParam,
+                // Add metadata flag to indicate this is a metadata-driven selection
+                metadataLevel: selectedLevel,
+                // Force reload
+                _levelChanged: Date.now()
+            });
+            
+            console.log('MetadataUI: Configuration updated:', {surface: surface, level: levelValue, param: currentParam, metadataLevel: selectedLevel});
+        }
+        
+        // Update visual selection state
+        d3.selectAll('#height-selection .surface, p .surface').classed('highlighted', false);
+        d3.select('#level-' + selectedLevel.replace(/[^a-zA-Z0-9]/g, '')).classed('highlighted', true);
+        
+        // Update status
+        d3.select('#status').text('Loading data for level ' + selectedLevel + '...');
     }
 
     // Main metadata service
@@ -494,7 +715,7 @@ var MetadataUI = (function() {
 
     MetadataService.prototype = {
         initialize: function() {
-            console.log('MetadataUI: Starting Phase 4 initialization...');
+            console.log('MetadataUI: Starting initialization...');
             
             var self = this;
             return fetch('/proxy/metadata')
@@ -508,7 +729,7 @@ var MetadataUI = (function() {
                     self.metadata = metadata;
                     self.timeCoords = self.extractTimeCoordinates(metadata);
                     
-                    console.log('MetadataUI: Metadata loaded, starting Phase 4 setup...');
+                    console.log('MetadataUI: Metadata loaded, starting setup...');
                     return self.initializeEnhancedMetadataUI(metadata);
                 })
                 .catch(function(error) {
@@ -524,31 +745,26 @@ var MetadataUI = (function() {
             return [];
         },
 
-        // Phase 4 & 5: Master Initialization Flow
         initializeEnhancedMetadataUI: function(metadata) {
-            console.log('MetadataUI: Starting enhanced metadata UI initialization (Phase 4 & 5)...');
+            console.log('MetadataUI: Starting enhanced metadata UI initialization...');
             
             try {
                 // Store metadata globally for access by other components
                 window.lastMetadata = metadata;
                 
-                // Phase 4: Mode detection and time navigation
                 var modeInfo = detectMode(metadata);
                 setupModeUI(modeInfo.mode, modeInfo);
                 setupMetadataTimeNavigation(metadata);
                 
-                // Phase 5: Variable-based overlay system
-                var categorizedVars = categorizeVariables(metadata.variables, modeInfo.mode, modeInfo);
+                 var categorizedVars = categorizeVariables(metadata.variables, modeInfo.mode, modeInfo);
                 generateModeSpecificOverlays(modeInfo.mode, categorizedVars, metadata);
                 setupVariableSelectionHandlers();
                 
-                // Generate UI components
                 this.generateHeightControls(metadata);
                 
-                // Update data source information
                 this.updateDataSourceDisplay(metadata);
                 
-                console.log('MetadataUI: Enhanced metadata UI initialization complete (Phase 4 & 5)');
+                console.log('MetadataUI: Enhanced metadata UI initialization complete');
                 
                 return {
                     mode: modeInfo,
@@ -558,7 +774,6 @@ var MetadataUI = (function() {
                 
             } catch (error) {
                 console.error('MetadataUI: Enhanced metadata UI initialization failed:', error);
-                // Fallback to basic initialization
                 return this.initializeBasicUI();
             }
         },
@@ -574,52 +789,8 @@ var MetadataUI = (function() {
         },
 
         generateHeightControls: function(metadata) {
-            var levels = ['surface']; // Surface only for now, Phase 6 will add 3D support
-            console.log('MetadataUI: Generating height controls for levels:', levels);
-            
-            var container = d3.selectAll('p').filter(function() {
-                return this.textContent.indexOf('Height') !== -1;
-            });
-            
-            if (container.empty()) return;
-            
-            // Clear existing controls
-            container.selectAll('.surface').remove();
-            container.selectAll('span').filter(function() {
-                return this.textContent === ' – ';
-            }).remove();
-            
-            // Generate new controls
-            levels.forEach(function(level, index) {
-                var buttonId = 'level-' + level.replace(/[^a-zA-Z0-9]/g, '');
-                var displayName = 'Sfc';
-                
-                if (index > 0) {
-                    container.append('span').text(' – ');
-                }
-                
-                container.append('span')
-                    .attr('class', 'surface text-button')
-                    .attr('id', buttonId)
-                    .attr('title', level)
-                    .text(displayName);
-                    
-                // Bind to configuration if available
-                if (typeof bindButtonToConfiguration === 'function') {
-                    try {
-                        bindButtonToConfiguration('#' + buttonId, {
-                            param: "wind", 
-                            surface: 'surface',
-                            level: level
-                        });
-                        console.log('MetadataUI: Successfully bound', '#' + buttonId);
-                    } catch (error) {
-                        console.warn('MetadataUI: Error binding button:', error);
-                    }
-                }
-            });
-            
-            console.log('MetadataUI: Height controls generated successfully');
+            var dimensionAnalysis = analyzeDimensions(metadata);
+            manageHeightSelection(dimensionAnalysis);
         },
 
 
@@ -656,7 +827,7 @@ var MetadataUI = (function() {
     function EarthJSIntegration() {
         return {
             initialize: function(dependencies) {
-                console.log('MetadataUI: Starting Phase 4 integration');
+                console.log('MetadataUI: Starting integration');
                 
                 if (dependencies.configuration) {
                     window.configuration = dependencies.configuration;
@@ -668,20 +839,62 @@ var MetadataUI = (function() {
                     window.products = dependencies.products;
                 }
                 
+                // ISSUE 1 FIX: Prevent initial data loading by setting a flag
+                console.log('MetadataUI: Preventing initial data load until metadata is ready');
+                window.metadataUIReady = false;
+                
+                // Override the configuration to prevent automatic data loading
+                if (dependencies.configuration) {
+                    // Temporarily disable auto-loading by setting invalid parameters
+                    dependencies.configuration.set({
+                        param: 'metadata_loading', // Temporary mode to prevent data loading
+                        date: 'pending',           // Invalid date to prevent data requests
+                        overlayType: 'off'         // No overlays initially
+                    }, {silent: true});
+                }
+                
                 var metadataService = new MetadataService();
                 
                 return metadataService.initialize()
                     .then(function(result) {
                         if (result && result.metadata) {
-                            console.log('MetadataUI: Phase 4 initialization complete', result);
+                            console.log('MetadataUI: initialization complete, enabling data loading', result);
+                            
+                            // ISSUE 1 FIX: Now enable data loading with proper metadata-driven configuration
+                            window.metadataUIReady = true;
+                            
+                            // Set proper initial configuration based on detected mode
+                            if (dependencies.configuration && result.mode) {
+                                var paramValue;
+                                if (result.mode.mode === 'ocean') {
+                                    paramValue = 'ocean';
+                                } else if (result.mode.mode === 'wind') {
+                                    paramValue = 'wind';
+                                } else {
+                                    paramValue = 'normal'; // Use 'normal' for normal mode, not 'wind'
+                                }
+                                
+                                var initialConfig = {
+                                    param: paramValue,
+                                    date: 'metadata', // Use metadata time
+                                    overlayType: 'off', // Start with no overlay
+                                    metadataTime: window.metadataTimeInfo ? window.metadataTimeInfo.current : null
+                                };
+                                
+                                console.log('MetadataUI: Setting initial configuration:', initialConfig);
+                                dependencies.configuration.save(initialConfig);
+                            }
+                            
                             return result.metadata;
                         } else {
-                            console.log('MetadataUI: No metadata available, continuing with defaults');
+                            console.log('MetadataUI: No metadata available, enabling default behavior');
+                            window.metadataUIReady = true;
                             return null;
                         }
                     })
                     .catch(function(error) {
-                        console.error('MetadataUI: Phase 4 integration failed:', error);
+                        console.error('MetadataUI: integration failed, enabling default behavior:', error);
+                        window.metadataUIReady = true;
                         return null;
                     });
             }
