@@ -749,20 +749,9 @@
     }
 
     /**
-     * Display the grid's validity date in the menu. Allow toggling between local and UTC time.
-     */
-    function showDate(grids) {
-        var date = new Date(validityDate(grids)), isLocal = d3.select("#data-date").classed("local");
-        var formatted = isLocal ? µ.toLocalISO(date) : µ.toUTCISO(date);
-        d3.select("#data-date").text(formatted + " " + (isLocal ? "Local" : "UTC"));
-        d3.select("#toggle-zone").text("⇄ " + (isLocal ? "UTC" : "Local"));
-    }
-
-    /**
      * Display the grids' types in the menu.
      */
     function showGridDetails(grids) {
-        showDate(grids);
         var description = "", center = "";
         if (grids && grids.primaryGrid) {
             var langCode = d3.select("body").attr("data-lang") || "en";
@@ -1000,10 +989,6 @@
         });
         gridAgent.on("update", function(grids) {
             showGridDetails(grids);
-        });
-        d3.select("#toggle-zone").on("click", function() {
-            d3.select("#data-date").classed("local", !d3.select("#data-date").classed("local"));
-            showDate(gridAgent.cancel.requested ? null : gridAgent.value());
         });
 
         function startRendering() {
