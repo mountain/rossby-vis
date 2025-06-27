@@ -423,14 +423,9 @@ var MetadataUI = (function() {
     }
 
     function generateModeSpecificOverlays(mode, categorizedVars, metadata) {
-        var container = d3.select('#overlay-variables');
-        if (container.empty()) {
-            // Try to find the overlay container in the existing structure
-            container = d3.selectAll('p').filter(function() {
-                return this.textContent.indexOf('Overlay') !== -1;
-            });
-        }
-        
+        const html_id = "#" + mode + "-mode-overlay-variables"
+        var container = d3.select(html_id);
+
         if (container.empty()) {
             console.warn('MetadataUI: No overlay container found');
             return;
